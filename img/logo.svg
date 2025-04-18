@@ -1,0 +1,14 @@
+<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"120\" viewBox=\"0 0 120 120\">
+    <!-- Background Circle -->
+    <circle cx=\"60\" cy=\"60\" r=\"58\" fill=\"#0530AD\" stroke=\"#042488\" stroke-width=\"4\"/>
+  
+    <!-- Storage (Disk Stack) -->
+    <g fill=\"#ffffff\">
+      <ellipse cx=\"60\" cy=\"80\" rx=\"30\" ry=\"10\" opacity=\"0.8\"/>
+      <ellipse cx=\"60\" cy=\"75\" rx=\"30\" ry=\"10\" opacity=\"0.9\"/>
+      <ellipse cx=\"60\" cy=\"70\" rx=\"30\" ry=\"10\"/>
+    </g>
+  
+    <!-- Lightning Bolt (representing speed) -->
+    <polygon fill=\"#FFDD00\" stroke=\"#E5C100\" stroke-width=\"2\" points=\"60,30 50,55 62,55 52,75 75,50 62,50\"/>
+  </svg>

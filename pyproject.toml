@@ -1,0 +1,34 @@
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "object-storage-proxy"
+description = "<object-storage-proxy ⚡> Yet Another Object Storage Proxy"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [{ name = "Jeroen", email = "jeroen@flexworks.eu" }]
+
+
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+dependencies = [
+    "python-dotenv>=1.1.0",
+]
+
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+
+[dependency-groups]
+dev = []
+
+[project.urls]
+Homepage = "https://github.com/jeroenflvr/object-storage-proxy"
+Documentation = "https://github.com/jeroenflvr/object-storage-proxy/blob/main/README.md"
+Repository = "https://github.com/jeroenflvr/object-storage-proxy/tree/main"
+BugTracker = "https://github.com/jeroenflvr/object-storage-proxy/issues"

@@ -1,0 +1,2 @@
+-e git+https://github.com/jeroenflvr/object-storage-proxy.git@99ec97ec18304d735a72b99ebb75e37383895d11#egg=object_storage_proxy
+python-dotenv==1.1.0
