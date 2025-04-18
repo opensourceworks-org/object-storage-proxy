@@ -1,2 +1,5 @@
 [build]
 rustflags = ["-C", "link-arg=-mmacosx-version-min=15.2"]
+
+[env]
+OPENSSL_NO_VENDOR = "1"
