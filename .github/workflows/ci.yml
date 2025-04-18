@@ -58,7 +58,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config python3.12 python3.12-dev
             fi
 
       - name: Upload wheels
@@ -103,7 +103,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config python3.12 python3.12-dev 
             fi
 
       - name: Upload wheels
