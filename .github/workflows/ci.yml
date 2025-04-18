@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: Build & publish pyaxp to pypi.org
+name: Build & publish object-storage-proxy to pypi.org
 
 on:
   # push:
