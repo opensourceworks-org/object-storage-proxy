@@ -1441,6 +1441,7 @@ dependencies = [
  "http",
  "log",
  "nom",
+ "openssl",
  "pingora",
  "prometheus 0.14.0",
  "pyo3",
