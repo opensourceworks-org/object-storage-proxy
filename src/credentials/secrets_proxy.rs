@@ -5,7 +5,7 @@ use std::{
 
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 #[derive(Clone, Debug)]
 pub struct SecretValue {

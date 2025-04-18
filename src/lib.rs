@@ -5,7 +5,6 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
 
-use parsers::credentials::parse_token_from_header;
 use pyo3::prelude::*;
 
 use async_trait::async_trait;
