@@ -85,13 +85,6 @@ jobs:
           python-version: 3.12
       - name: Build wheels
         uses: PyO3/maturin-action@v1
-        docker-options: >-
-          --env OPENSSL_DIR=/usr
-          --env OPENSSL_INCLUDE_DIR=/usr/include
-          --env OPENSSL_LIB_DIR=/usr/lib
-          --env X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr
-          --env PKG_CONFIG_ALLOW_CROSS=1
-          --env PKG_CONFIG_PATH=/usr/lib/pkgconfig
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -117,6 +110,8 @@ jobs:
               export OPENSSL_INCLUDE_DIR=/usr/include
               export OPENSSL_LIB_DIR=/usr/lib
               export X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr
+              export PKG_CONFIG_ALLOW_CROSS=1
+              export PKG_CONFIG_PATH=/usr/lib/pkgconfig
             else
               echo "Unsupported distro for before-script-linux" >&2
               exit 1
