@@ -47,6 +47,9 @@ jobs:
           manylinux: auto
           before-script-linux: |
             apt update -y && apt-get install -y libssl-dev openssl pkg-config perl perl-core libipc-cmd-perl
+            export PERL_MM_USE_DEFAULT=1
+            export PERL_EXTUTILS_AUTOINSTALL="--defaultdeps"
+            cpan -i IPC::Cmd
             
 
       - name: Upload wheels
