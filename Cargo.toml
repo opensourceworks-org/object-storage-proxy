@@ -29,6 +29,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter", "chrono"] }
 rustls = { version = "0.23.26", features = ["ring","logging","tls12"], default-features = false }
 
+openssl-probe = { version = "0.1.6", default-features = false, features = [] }
 
 # [target.'cfg(target_os = "linux")'.dependencies]
 # patchelf = "0.2.1"
