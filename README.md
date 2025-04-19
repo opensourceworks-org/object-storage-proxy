@@ -227,7 +227,8 @@ PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
 2025-04-19T13:20:01.739385+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Received access token
 2025-04-19T13:20:01.739600+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Fetched new token for proxy-bucket01
 2025-04-19T13:20:01.739668+02:00  INFO object_storage_proxy: Sending request to upstream: https://proxy-bucket01.s3.eu-de.cloud-object-storage.appdomain.cloud/?list-type=2&prefix=&encoding-type=url
-2025-04-19T13:20:01.739922+02:00  INFO object_storage_proxy: Request sent to upstream.```
+2025-04-19T13:20:01.739922+02:00  INFO object_storage_proxy: Request sent to upstream.
+```
 
 
 # Status
