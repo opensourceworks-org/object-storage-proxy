@@ -40,7 +40,7 @@ jobs:
           python-version: 3.12
       - name: Export aarch64 cross-compiler
         if: matrix.platform.target == 'aarch64'
-        run: echo "CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+        run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -52,7 +52,10 @@ jobs:
           before-script-linux: |
             # If we're running on rhel centos, install needed packages.
             if command -v yum &> /dev/null; then
-                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
+                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN \
+                binutils-aarch64-linux-gnu.x86_64 \
+                gcc-aarch64-linux-gnu.x86_64 \
+                gcc-c++-aarch64-linux-gnu.x86_64
 
                 # If we're running on i686 we need to symlink libatomic
                 # in order to build openssl with -latomic flag.
@@ -61,7 +64,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             fi
             
 
@@ -90,7 +93,7 @@ jobs:
           python-version: 3.12
       - name: Export aarch64 cross-compiler
         if: matrix.platform.target == 'aarch64'
-        run: echo "CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+        run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
     
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -102,7 +105,10 @@ jobs:
           before-script-linux: |
             # If we're running on rhel centos, install needed packages.
             if command -v yum &> /dev/null; then
-                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
+                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN \
+                binutils-aarch64-linux-gnu.x86_64 \
+                gcc-aarch64-linux-gnu.x86_64 \
+                gcc-c++-aarch64-linux-gnu.x86_64
 
                 # If we're running on i686 we need to symlink libatomic
                 # in order to build openssl with -latomic flag.
@@ -111,7 +117,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             fi
 
       - name: Upload wheels
