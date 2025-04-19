@@ -58,6 +58,7 @@ jobs:
             else
                 # If we're running on debian-based system.
                 apt update -y && apt-get install -y libssl-dev openssl pkg-config perl perl-core libipc-cmd-perl
+            fi
             export PERL_MM_USE_DEFAULT=1
             export PERL_EXTUTILS_AUTOINSTALL="--defaultdeps"
             cpan -i IPC::Cmd
