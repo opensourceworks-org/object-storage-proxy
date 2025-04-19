@@ -32,8 +32,6 @@ pub mod credentials;
 pub mod utils;
 use credentials::secrets_proxy::{SecretsCache, get_bearer};
 
-use rustls::crypto::CryptoProvider;
-
 
 static REQ_COUNTER: Mutex<usize> = Mutex::new(0);
 

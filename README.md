@@ -12,13 +12,14 @@ The port is not always different, though, but it might be.  Depends on your impl
 
 You can imagine managing multiple buckets across instances can become quite cumbersome, even with aws profiles etc.
 
+
 ### solution
 There are two ways to access a bucket: through virtual addressing style (bucket.ibm-cos-host:port) and path style (ibm-cos-host/bucket).
 
 your client (aws s3 compatible) -> http(s)://this-proxy/bucket01 -> https://bucket01.s3.eu-de.cloud-object-storage.appdomain.cloud:443
 
 1) translate path style to virtual style
-2) abstract credentials
+2) abstract authentication & authorization
 
 
 Pass in a function which maps bucket to instance (credentials), and a function to map bucket to port (endpoint)
@@ -80,11 +81,21 @@ Pass in a function which maps bucket to instance (credentials), and a function t
      └──────┘           └────────────┘                                              └───────────┘          └───────┘
 ```
 
+# authentication & authorization
+The advantage is we can plug in a python authentication function and another function for authorization, allowing for fine-grained control.
+
+## authentication
+We use the standard aws hmac header.
+
+## authorization
+Pass in a callable from python which will be called from rust.  This will be cached (ttl) for consequtive requests.
+
 # Status
 
 - [x] pingora proxy implementation
 - [x] pass in credentials handler
-- [ ] cache credentials
+- [x] cache credentials
 - [x] pass in bucket/instance and bucket/port config
 - [x] <del>split in workspace crate with core, cli and python crates</del> (too many specifics for python)
 - [ ] config mgmt
+- [ ] cache authorization (with optional ttl)
