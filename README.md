@@ -6,6 +6,17 @@
 
 ## Introduction
 
+A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy IBM Cloud Object Storage buckets.
+
+- [x] Takes a Python validator function and cos bucket mapping list of tuples.
+- [ ] The validation is cached with optional ttl.
+- [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration.
+- [ ] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket.
+
+The bucket mapping list consists of tuples:
+    ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance1", apikey)
+
+
 ### secrets
 IBM COS Storage is built in a way where buckets are grouped by a cos (Cloud Object Storage) instance.  Access to a bucket is managed by either an api key or hmac secrets, configured on the cos instance.  
 
@@ -173,7 +184,7 @@ if __name__ == "__main__":
 
 ```
 
-run with [aws-cli]() (but could be anything compatible with the aws s3 api like polars, spark, presto, ...):
+Run with [aws-cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (but could be anything compatible with the aws s3 api like polars, spark, presto, ...):
 
 ```shell
 $ aws s3 ls s3://proxy-bucket01/ --recursive --summarize --human-readable --profile osp
@@ -183,6 +194,25 @@ $ aws s3 ls s3://proxy-bucket01/ --recursive --summarize --human-readable --prof
 Total Objects: 2
    Total Size: 66 Bytes
 $
+```
+
+Server output:
+
+```log
+$ uv run python test_server.py
+2025-04-19T12:02:16.305908+02:00  INFO object_storage_proxy: Logger initialized; starting server on port 6190
+2025-04-19T12:02:16.306127+02:00  INFO object_storage_proxy: Bucket creds fetcher provided: Py(0x102390680)
+Fetching credentials for bucket01...
+2025-04-19T12:02:16.306148+02:00  INFO object_storage_proxy: Callback returned: Kn2t...
+2025-04-19T12:02:16.306760+02:00  INFO pingora_core::server: Bootstrap starting
+2025-04-19T12:02:16.306768+02:00  INFO pingora_core::server: Bootstrap done
+2025-04-19T12:02:16.308063+02:00  INFO pingora_core::server: Server starting
+PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
+2025-04-19T12:02:24.878949+02:00  INFO object_storage_proxy::utils::validator: Callback returned: true
+2025-04-19T12:02:25.147970+02:00  INFO object_storage_proxy::credentials::secrets_proxy: No cached token found for proxy-bucket01, fetching ...
+2025-04-19T12:02:25.148019+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Fetching bearer token for the API key
+2025-04-19T12:02:25.714117+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Received access token
+2025-04-19T12:02:25.714208+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Fetched new token for proxy-bucket01
 ```
 
 
