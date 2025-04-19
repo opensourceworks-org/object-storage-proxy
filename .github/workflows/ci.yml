@@ -46,7 +46,7 @@ jobs:
           sccache: 'true'
           manylinux: auto
           before-script-linux: |
-            apt update -y && apt-get install -y libssl-dev openssl pkg-config perl perl-core
+            apt update -y && apt-get install -y libssl-dev openssl pkg-config perl perl-core libipc-cmd-perl
             
 
       - name: Upload wheels
