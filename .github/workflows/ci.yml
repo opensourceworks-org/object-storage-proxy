@@ -52,10 +52,7 @@ jobs:
           before-script-linux: |
             # If we're running on rhel centos, install needed packages.
             if command -v yum &> /dev/null; then
-                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN \
-                binutils-aarch64-linux-gnu.x86_64 \
-                gcc-aarch64-linux-gnu.x86_64 \
-                gcc-c++-aarch64-linux-gnu.x86_64
+                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
 
                 # If we're running on i686 we need to symlink libatomic
                 # in order to build openssl with -latomic flag.
@@ -64,7 +61,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config
             fi
             
 
@@ -81,20 +78,11 @@ jobs:
         platform:
           - runner: ubuntu-22.04
             target: x86_64
-          # - runner: ubuntu-22.04
-          #   target: aarch64
-          # - runner: ubuntu-22.04
-          #   target: armv7
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: 3.12
-      # - name: Export aarch64 cross-compiler
-      #   if: matrix.platform.target == 'aarch64'
-      #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-    
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -105,15 +93,16 @@ jobs:
           before-script-linux: |
             if command -v yum &> /dev/null; then
               # CentOS‑based manylinux
-              yum install -y openssl-devel pkgconfig perl perl-IPC-Cmd
+              yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
             elif command -v apt-get &> /dev/null; then
               # Debian/Ubuntu
-              apt-get update && apt-get install -y libssl-dev pkg-config perl perl
+              apt update -y && apt-get install -y libssl-dev openssl pkg-config
             elif command -v apk &> /dev/null; then
               # Alpine‑based musllinux
               apk update
               apk add --no-cache \
-                openssl openssl-dev \
+                openssl \
+                openssl-dev \
                 pkgconfig \
                 perl \
                 perl-ipc-cmd
@@ -121,7 +110,6 @@ jobs:
               echo "Unsupported distro for before-script-linux" >&2
               exit 1
             fi
-
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
