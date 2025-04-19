@@ -38,6 +38,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.12
+      - name: Export aarch64 cross-compiler
+        if: matrix.platform.target == 'aarch64'
+        run: echo "CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -84,6 +88,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.12
+      - name: Export aarch64 cross-compiler
+        if: matrix.platform.target == 'aarch64'
+        run: echo "CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+    
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
