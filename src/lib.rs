@@ -233,6 +233,7 @@ impl ProxyHttp for MyProxy {
 
         let addr = (endpoint.clone(), 443);
 
+
         let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
         peer.options.verify_cert = false;
         Ok(peer)
@@ -286,22 +287,32 @@ impl ProxyHttp for MyProxy {
         // Box:leak the temporary string to get a static reference which will outlive the function
         let authority = Authority::from_static(Box::leak(endpoint.clone().into_boxed_str()));
 
-        upstream_request.set_uri(
-            Uri::builder()
-                .authority(
-                    upstream_request
-                        .uri
-                        .authority()
-                        .unwrap_or(&authority)
-                        .clone(),
-                )
-                .scheme(upstream_request.uri.scheme_str().unwrap_or("https"))
-                .path_and_query(my_updated_url.to_owned() + (&my_query))
-                .build()
-                .unwrap(),
-        );
+        // upstream_request.set_uri(
+        //     Uri::builder()
+        //         .authority(
+        //             upstream_request
+        //                 .uri
+        //                 .authority()
+        //                 .unwrap_or(&authority)
+        //                 .clone(),
+        //         )
+        //         .scheme(upstream_request.uri.scheme_str().unwrap_or("https"))
+        //         .path_and_query(my_updated_url.to_owned() + (&my_query))
+        //         .build()
+        //         .unwrap(),
+        // );
 
-        upstream_request.insert_header("host", endpoint.to_owned())?;
+        let new_uri = Uri::builder()
+            .scheme("https")
+            .authority(authority.clone())
+            .path_and_query(my_updated_url.to_owned() + &my_query)
+            .build()
+            .expect("should build a valid URI");
+
+        upstream_request.set_uri(new_uri);
+
+        // upstream_request.insert_header("host", endpoint.to_owned())?;
+        upstream_request.insert_header("host", authority.as_str())?;
 
         upstream_request
             .insert_header("Authorization", format!("Bearer {}", bearer_token.unwrap()))?;
