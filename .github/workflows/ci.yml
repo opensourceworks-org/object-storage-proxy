@@ -85,8 +85,6 @@ jobs:
           python-version: 3.12
       - name: Build wheels
         uses: PyO3/maturin-action@v1
-        env:
-          OPENSSL_DIR: /usr
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -108,6 +106,10 @@ jobs:
                 pkgconfig \
                 perl \
                 perl-ipc-cmd
+              export OPENSSL_DIR=/usr
+              export OPENSSL_INCLUDE_DIR=/usr/include
+              export OPENSSL_LIB_DIR=/usr/lib
+              export X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr
             else
               echo "Unsupported distro for before-script-linux" >&2
               exit 1
