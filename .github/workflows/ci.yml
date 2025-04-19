@@ -29,8 +29,8 @@ jobs:
             target: x86_64
           - runner: ubuntu-22.04
             target: aarch64
-          - runner: ubuntu-22.04
-            target: armv7
+          # - runner: ubuntu-22.04
+          #   target: armv7
 
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl perl-core libipc-cmd-perl
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl
             fi
             
 
@@ -76,8 +76,8 @@ jobs:
             target: x86_64
           - runner: ubuntu-22.04
             target: aarch64
-          - runner: ubuntu-22.04
-            target: armv7
+          # - runner: ubuntu-22.04
+          #   target: armv7
     steps:
       - uses: actions/checkout@v4
 
@@ -103,7 +103,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl perl-core libipc-cmd-perl
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl
             fi
 
       - name: Upload wheels
