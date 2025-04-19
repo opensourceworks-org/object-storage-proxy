@@ -152,13 +152,14 @@ impl ProxyHttp for MyProxy {
         }
     }
 
-
+    // TODO: cache authorization like we do for bearer tokens
     async fn request_filter(
         &self,
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<bool> {
 
+        
         let path = session.req_header().uri.path();
 
         let parse_path_result = parse_path(path);
