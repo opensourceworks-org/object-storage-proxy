@@ -1703,7 +1703,6 @@ dependencies = [
  "http",
  "log",
  "nom 8.0.0",
- "openssl-probe",
  "pingora",
  "prometheus 0.14.0",
  "pyo3",
