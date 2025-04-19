@@ -103,21 +103,23 @@ jobs:
           sccache: 'true'
           manylinux: musllinux_1_2
           before-script-linux: |
-            # If we're running on rhel centos, install needed packages.
             if command -v yum &> /dev/null; then
-                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN \
-                binutils-aarch64-linux-gnu.x86_64 \
-                gcc-aarch64-linux-gnu.x86_64 \
-                gcc-c++-aarch64-linux-gnu.x86_64
-
-                # If we're running on i686 we need to symlink libatomic
-                # in order to build openssl with -latomic flag.
-                if [[ ! -d "/usr/lib64" ]]; then
-                    ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
-                fi
+              # CentOS‑based manylinux
+              yum install -y openssl-devel pkgconfig perl perl-IPC-Cmd
+            elif command -v apt-get &> /dev/null; then
+              # Debian/Ubuntu
+              apt-get update && apt-get install -y libssl-dev pkg-config perl perl
+            elif command -v apk &> /dev/null; then
+              # Alpine‑based musllinux
+              apk update
+              apk add --no-cache \
+                openssl openssl-dev \
+                pkgconfig \
+                perl \
+                perl-ipc-cmd
             else
-                # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config perl gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+              echo "Unsupported distro for before-script-linux" >&2
+              exit 1
             fi
 
       - name: Upload wheels
