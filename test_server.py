@@ -28,9 +28,9 @@ def main():
 
 
     cos_mapping = [
-        ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance1", apikey),
-        ("bucket2", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance2", apikey),
-        ("proxy-bucket01", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance3", apikey),
+        ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
+        ("bucket2", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
+        ("proxy-bucket01", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
     ]
 
 

@@ -17,7 +17,12 @@ A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://gi
 - [ ] HMAC support: passing in access and secret id keys, will be used to sign the request
 
 The bucket mapping list consists of tuples:
-    ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance1", apikey)
+    - bucket
+    - endpoint host
+    - port
+    - api key
+
+    ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey)
 
 
 ### secrets
@@ -113,7 +118,7 @@ Pass in a callable from python which will be called from rust.  This will be cac
 With local configuration.
 
 ~/.aws/config
-```
+```ini
 [profile osp]
 region = eu-west-3
 output = json
@@ -127,7 +132,7 @@ s3 =
 ```
 
 ~/.aws/credentials
-```
+```ini
 [osp]
 aws_access_key_id = MYLOCAL123
 aws_secret_access_key = nothingmeaningful
@@ -166,9 +171,9 @@ def main():
 
 
     cos_mapping = [
-        ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance1", apikey),
-        ("bucket2", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance2", apikey),
-        ("proxy-bucket01", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance3", apikey),
+        ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
+        ("bucket2", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
+        ("proxy-bucket01", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
     ]
 
 
@@ -189,7 +194,7 @@ if __name__ == "__main__":
 
 Run with [aws-cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (but could be anything compatible with the aws s3 api like polars, spark, presto, ...):
 
-```shell
+```bash
 $ aws s3 ls s3://proxy-bucket01/ --recursive --summarize --human-readable --profile osp
 2025-04-17 17:45:30   33 Bytes README.md
 2025-04-17 17:48:04   33 Bytes README2.md
@@ -203,20 +208,26 @@ Server output:
 
 ```log
 $ uv run python test_server.py
-2025-04-19T12:02:16.305908+02:00  INFO object_storage_proxy: Logger initialized; starting server on port 6190
-2025-04-19T12:02:16.306127+02:00  INFO object_storage_proxy: Bucket creds fetcher provided: Py(0x102390680)
+2025-04-19T13:19:54.402023+02:00  INFO object_storage_proxy: Logger initialized; starting server on port 6190
+2025-04-19T13:19:54.402361+02:00  INFO object_storage_proxy: Bucket creds fetcher provided: Py(0x100210680)
 Fetching credentials for bucket01...
-2025-04-19T12:02:16.306148+02:00  INFO object_storage_proxy: Callback returned: Kn2t...
-2025-04-19T12:02:16.306760+02:00  INFO pingora_core::server: Bootstrap starting
-2025-04-19T12:02:16.306768+02:00  INFO pingora_core::server: Bootstrap done
-2025-04-19T12:02:16.308063+02:00  INFO pingora_core::server: Server starting
+2025-04-19T13:19:54.402485+02:00  INFO object_storage_proxy: Callback returned: Kn2t...
+[src/lib.rs:327:5] &run_args.cos_map = Py(
+    0x000000010061aa00,
+)
+2025-04-19T13:19:54.403738+02:00  INFO pingora_core::server: Bootstrap starting
+2025-04-19T13:19:54.403852+02:00  INFO pingora_core::server: Bootstrap done
+2025-04-19T13:19:54.424489+02:00  INFO pingora_core::server: Server starting
 PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
-2025-04-19T12:02:24.878949+02:00  INFO object_storage_proxy::utils::validator: Callback returned: true
-2025-04-19T12:02:25.147970+02:00  INFO object_storage_proxy::credentials::secrets_proxy: No cached token found for proxy-bucket01, fetching ...
-2025-04-19T12:02:25.148019+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Fetching bearer token for the API key
-2025-04-19T12:02:25.714117+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Received access token
-2025-04-19T12:02:25.714208+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Fetched new token for proxy-bucket01
-```
+2025-04-19T13:19:58.124729+02:00  INFO object_storage_proxy::utils::validator: Callback returned: false
+PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
+2025-04-19T13:20:00.919320+02:00  INFO object_storage_proxy::utils::validator: Callback returned: true
+2025-04-19T13:20:01.181775+02:00  INFO object_storage_proxy::credentials::secrets_proxy: No cached token found for proxy-bucket01, fetching ...
+2025-04-19T13:20:01.181859+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Fetching bearer token for the API key
+2025-04-19T13:20:01.739385+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Received access token
+2025-04-19T13:20:01.739600+02:00  INFO object_storage_proxy::credentials::secrets_proxy: Fetched new token for proxy-bucket01
+2025-04-19T13:20:01.739668+02:00  INFO object_storage_proxy: Sending request to upstream: https://proxy-bucket01.s3.eu-de.cloud-object-storage.appdomain.cloud/?list-type=2&prefix=&encoding-type=url
+2025-04-19T13:20:01.739922+02:00  INFO object_storage_proxy: Request sent to upstream.```
 
 
 # Status

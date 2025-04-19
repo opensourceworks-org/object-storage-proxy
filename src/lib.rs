@@ -85,42 +85,34 @@ impl ProxyServerConfig {
 pub struct CosMapItem {
     pub host: String,
     pub port: u16,
-    pub instance: String,
     pub api_key: Option<String>,
 }
 
 fn parse_cos_map(py: Python, cos_dict: &PyObject) -> PyResult<HashMap<String, CosMapItem>> {
     let mut cos_map: HashMap<String, CosMapItem> = HashMap::new();
-    let cos_tuples: Result<Vec<(String, String, u16, String, Option<String>)>, PyErr> =
-        cos_dict.extract(py);
+    // let cos_tuples: Result<Vec<(String, String, u16, Option<String>)>, PyErr> =
+    //     cos_dict.extract(py);
+    
+    let tuples: Vec<(String, String, u16, Option<String>)> = cos_dict.extract(py)?;
+    for (bucket, host, port, api_key) in tuples {
+        let host = host.to_string();
+        let port = port;
+        let bucket = bucket.to_string();
+        let api_key = api_key.map(|s| s.to_string());
 
-    match cos_tuples {
-        Ok(cos_tuples) => {
-            for (bucket, host, port, instance, api_key) in cos_tuples {
-                let host = host.to_string();
-                let instance = instance.to_string();
-                let port = port;
-                let bucket = bucket.to_string();
-                let api_key = api_key.map(|s| s.to_string());
+        cos_map.insert(
+            bucket.clone(),
+            CosMapItem {
+                host: host.clone(),
+                port,
+                api_key: api_key.clone(),
+            },
+        );
+    };
 
-                cos_map.insert(
-                    bucket.clone(),
-                    CosMapItem {
-                        host: host.clone(),
-                        port,
-                        instance: instance.clone(),
-                        api_key: api_key.clone(),
-                    },
-                );
-            }
+    Ok(cos_map)
 
-            Ok(cos_map)
-        }
-        Err(e) => {
-            error!("Error extracting cos_map: {:?}", e);
-            Err(e)
-        }
-    }
+
 }
 
 pub struct MyProxy {
@@ -242,7 +234,7 @@ impl ProxyHttp for MyProxy {
 
     async fn upstream_request_filter(
         &self,
-        session: &mut Session,
+        _session: &mut Session,
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
@@ -286,21 +278,6 @@ impl ProxyHttp for MyProxy {
         // Box:leak the temporary string to get a static reference which will outlive the function
         let authority = Authority::from_static(Box::leak(endpoint.clone().into_boxed_str()));
 
-        // upstream_request.set_uri(
-        //     Uri::builder()
-        //         .authority(
-        //             upstream_request
-        //                 .uri
-        //                 .authority()
-        //                 .unwrap_or(&authority)
-        //                 .clone(),
-        //         )
-        //         .scheme(upstream_request.uri.scheme_str().unwrap_or("https"))
-        //         .path_and_query(my_updated_url.to_owned() + (&my_query))
-        //         .build()
-        //         .unwrap(),
-        // );
-
         let new_uri = Uri::builder()
             .scheme("https")
             .authority(authority.clone())
@@ -308,13 +285,18 @@ impl ProxyHttp for MyProxy {
             .build()
             .expect("should build a valid URI");
 
+        info!("Sending request to upstream: {}", &new_uri);
+
         upstream_request.set_uri(new_uri);
 
-        // upstream_request.insert_header("host", endpoint.to_owned())?;
         upstream_request.insert_header("host", authority.as_str())?;
 
         upstream_request
             .insert_header("Authorization", format!("Bearer {}", bearer_token.unwrap()))?;
+
+        info!("Request sent to upstream.");
+
+
         Ok(())
     }
 }
@@ -342,7 +324,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
             info!("No bucket creds fetcher provided");
         }
     }
-
+    dbg!(&run_args.cos_map);
     let cosmap = parse_cos_map(py, &run_args.cos_map).unwrap();
 
     let mut my_server = Server::new(None).unwrap();
