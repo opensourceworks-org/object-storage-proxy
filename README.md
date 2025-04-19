@@ -12,6 +12,7 @@ A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://gi
 - [ ] The validation is cached with optional ttl.
 - [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration.
 - [ ] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket.
+- [ ] HMAC support: passing in access and secret id keys, will be used to sign the request
 
 The bucket mapping list consists of tuples:
     ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, "instance1", apikey)
