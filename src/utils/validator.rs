@@ -30,11 +30,6 @@ pub fn validate_request(
         }
         Err(err) => {
             error!("Python callback raised an exception: {:?}", err);
-
-            // Option 1: Return the error to Python (so Python sees the exception)
-            // return Err(err);
-
-            // Option 2: Convert it into a custom Python exception or a new error message
             return Err("Failed to call callback due to an inner Python exception".to_string());
         }
     }
