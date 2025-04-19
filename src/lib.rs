@@ -32,6 +32,9 @@ pub mod credentials;
 pub mod utils;
 use credentials::secrets_proxy::{SecretsCache, get_bearer};
 
+use rustls::crypto::CryptoProvider;
+
+
 static REQ_COUNTER: Mutex<usize> = Mutex::new(0);
 
 #[pyclass]
@@ -388,6 +391,8 @@ fn get_api_key_for_bucket(py: Python, callback: &PyObject, bucket: String) -> Py
 
 #[pyfunction]
 pub fn start_server(py: Python, run_args: &ProxyServerConfig) -> PyResult<()> {
+    rustls::crypto::ring::default_provider().install_default().expect("Failed to install rustls crypto provider");
+
     dotenv().ok();
 
     run_server(py, &run_args);

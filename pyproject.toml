@@ -18,6 +18,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "python-dotenv>=1.1.0",
+    "patchelf>=0.17.2.2; sys_platform == 'linux'",
 ]
 
 
