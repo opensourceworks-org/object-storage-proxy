@@ -27,8 +27,8 @@ jobs:
         platform:
           - runner: ubuntu-22.04
             target: x86_64
-          - runner: ubuntu-22.04
-            target: aarch64
+          # - runner: ubuntu-22.04
+          #   target: aarch64
           # - runner: ubuntu-22.04
           #   target: armv7
 
@@ -38,9 +38,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.12
-      - name: Export aarch64 cross-compiler
-        if: matrix.platform.target == 'aarch64'
-        run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      # - name: Export aarch64 cross-compiler
+      #   if: matrix.platform.target == 'aarch64'
+      #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -81,8 +81,8 @@ jobs:
         platform:
           - runner: ubuntu-22.04
             target: x86_64
-          - runner: ubuntu-22.04
-            target: aarch64
+          # - runner: ubuntu-22.04
+          #   target: aarch64
           # - runner: ubuntu-22.04
           #   target: armv7
     steps:
@@ -91,9 +91,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.12
-      - name: Export aarch64 cross-compiler
-        if: matrix.platform.target == 'aarch64'
-        run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      # - name: Export aarch64 cross-compiler
+      #   if: matrix.platform.target == 'aarch64'
+      #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
     
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -159,8 +159,8 @@ jobs:
         platform:
           - runner: macos-13
             target: x86_64
-          - runner: macos-14
-            target: aarch64
+          # - runner: macos-14
+          #   target: aarch64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
