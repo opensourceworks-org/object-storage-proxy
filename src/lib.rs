@@ -231,7 +231,6 @@ impl ProxyHttp for MyProxy {
                 format!("{}.{}", bucket, self.cos_endpoint)
             }
         };
-        dbg!(&endpoint);
 
         let addr = (endpoint.clone(), 443);
 
@@ -247,8 +246,6 @@ impl ProxyHttp for MyProxy {
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
-
-        dbg!(&session.req_header());
 
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
 
