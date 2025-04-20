@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use pyo3::{PyObject, PyResult, Python};
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::{error, info};
@@ -38,6 +39,12 @@ impl SecretValue {
 #[derive(Clone, Debug)]
 pub struct SecretsCache {
     inner: Arc<RwLock<HashMap<String, SecretValue>>>,
+}
+
+impl Default for SecretsCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SecretsCache {
@@ -148,6 +155,16 @@ pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn s
         error!("Failed to get token: {}", err_text);
         Err(format!("Failed to get token: {}", err_text).into())
     }
+}
+
+pub(crate) async fn get_api_key_for_bucket(
+    callback: &PyObject,
+    bucket: String,
+) -> PyResult<String> {
+    Python::with_gil(|py| {
+        let result = callback.call1(py, (bucket,))?;
+        result.extract::<String>(py)
+    })
 }
 
 #[cfg(test)]

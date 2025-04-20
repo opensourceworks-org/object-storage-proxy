@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 
-use parsers::cos_map::{parse_cos_map, CosMapItem};
+use parsers::cos_map::{CosMapItem, parse_cos_map};
 use tracing::{error, info};
 
 use tracing_subscriber::EnvFilter;
@@ -14,9 +14,9 @@ use http::uri::Authority;
 
 use pyo3::types::{PyModule, PyModuleMethods};
 use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
-use utils::validator::{validate_request, AuthCache};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use utils::validator::{AuthCache, validate_request};
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -33,9 +33,8 @@ use parsers::path::parse_path;
 pub mod credentials;
 
 pub mod utils;
-use credentials::secrets_proxy::{SecretsCache, get_bearer};
 use crate::parsers::credentials::parse_token_from_header;
-
+use credentials::secrets_proxy::{SecretsCache, get_api_key_for_bucket, get_bearer};
 
 static REQ_COUNTER: Mutex<usize> = Mutex::new(0);
 
@@ -77,14 +76,13 @@ impl ProxyServerConfig {
         validator: Option<PyObject>,
     ) -> Self {
         ProxyServerConfig {
-            bucket_creds_fetcher: bucket_creds_fetcher.map(|obj| obj.into()),
+            bucket_creds_fetcher,
             cos_map,
             port,
-            validator: validator.map(|obj| obj.into()),
+            validator,
         }
     }
 }
-
 
 pub struct MyProxy {
     cos_endpoint: String,
@@ -92,6 +90,7 @@ pub struct MyProxy {
     secrets_cache: SecretsCache,
     auth_cache: AuthCache,
     validator: Option<PyObject>,
+    bucket_creds_fetcher: Option<PyObject>,
 }
 
 pub struct MyCtx {
@@ -99,6 +98,7 @@ pub struct MyCtx {
     secrets_cache: SecretsCache,
     auth_cache: AuthCache,
     validator: Option<PyObject>,
+    bucket_creds_fetcher: Option<PyObject>,
 }
 
 #[async_trait]
@@ -113,14 +113,14 @@ impl ProxyHttp for MyProxy {
                 .validator
                 .as_ref()
                 .map(|v| Python::with_gil(|py| v.clone_ref(py))),
+            bucket_creds_fetcher: self
+                .bucket_creds_fetcher
+                .as_ref()
+                .map(|v| Python::with_gil(|py| v.clone_ref(py))),
         }
     }
 
-    async fn request_filter(
-        &self,
-        session: &mut Session,
-        ctx: &mut Self::CTX,
-    ) -> Result<bool> {
+    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         let path = session.req_header().uri.path();
 
         let parse_path_result = parse_path(path);
@@ -139,6 +139,11 @@ impl ProxyHttp for MyProxy {
             .map(ToString::to_string)
             .unwrap_or_default();
 
+        let ttl = ctx
+            .cos_mapping
+            .get(bucket)
+            .and_then(|config| config.ttl)
+            .unwrap_or(0);
 
         let is_authorized = if let Some(py_cb) = &ctx.validator {
             let token = parse_token_from_header(&auth_header)
@@ -149,11 +154,11 @@ impl ProxyHttp for MyProxy {
 
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
-    
+
             ctx.auth_cache
                 .get_or_validate(
                     &cache_key,
-                    Duration::from_secs(300),  // keep this short enough , TODO: pass from python
+                    Duration::from_secs(ttl), // keep this short enough , TODO: pass from python
                     move || {
                         let tk = token.clone();
                         let bu = bucket_clone.clone();
@@ -169,7 +174,7 @@ impl ProxyHttp for MyProxy {
         } else {
             true
         };
-    
+
         if !is_authorized {
             info!("Access denied for bucket: {}.  End of request.", bucket);
             session.respond_error(401).await?;
@@ -179,7 +184,6 @@ impl ProxyHttp for MyProxy {
         Ok(false)
     }
 
-
     async fn upstream_peer(
         &self,
         session: &mut Session,
@@ -187,7 +191,6 @@ impl ProxyHttp for MyProxy {
     ) -> Result<Box<HttpPeer>> {
         let mut req_counter = REQ_COUNTER.lock().unwrap();
         *req_counter += 1;
-
 
         let path = session.req_header().uri.path();
 
@@ -201,11 +204,10 @@ impl ProxyHttp for MyProxy {
 
         let hdr_bucket = bucket.to_owned();
 
-
         let bucket_config = ctx.cos_mapping.get(&hdr_bucket);
         let endpoint = match bucket_config {
             Some(config) => {
-                format!("{}", config.host)
+                config.host.to_owned()
             }
             None => {
                 format!("{}.{}", bucket, self.cos_endpoint)
@@ -213,7 +215,6 @@ impl ProxyHttp for MyProxy {
         };
 
         let addr = (endpoint.clone(), 443);
-
 
         let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
         peer.options.verify_cert = false;
@@ -226,7 +227,6 @@ impl ProxyHttp for MyProxy {
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
-
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
 
         let hdr_bucket = bucket.to_string();
@@ -246,17 +246,34 @@ impl ProxyHttp for MyProxy {
                 format!("{}.{}", bucket, self.cos_endpoint)
             }
         };
-        let api_key = match bucket_config {
-            Some(config) => config.api_key.clone(),
-            None => None,
-        };
 
-        let Some(api_key) = api_key else {
-            error!("No API key configured for bucket: {}", hdr_bucket);
+        let api_key = bucket_config.and_then(|config| config.api_key.clone());
+        let api_key = if let Some(key) = api_key {
+            info!("Using API key from config for bucket: {}", hdr_bucket);
+            key
+        } else if let Some(py_cb) = &ctx.bucket_creds_fetcher {
+            info!(
+                "No key provided in config. Fetching API key for bucket: {}",
+                hdr_bucket
+            );
+            match get_api_key_for_bucket(py_cb, hdr_bucket.clone()).await {
+                Ok(k) => k,
+                Err(err) => {
+                    error!(
+                        "Error fetching API key for bucket {}: {:?}",
+                        hdr_bucket, err
+                    );
+                    return Err(pingora::Error::new_str(
+                        "Failed to fetch API key for bucket",
+                    ));
+                }
+            }
+        } else {
+            error!("No API key available for bucket: {}", hdr_bucket);
             return Err(pingora::Error::new_str("No API key configured for bucket"));
         };
 
-        // partial, a closure with the api_key already bound to the get_bearer function
+        // a partial, a closure with the api_key already bound to the get_bearer function
         let bearer_fetcher = {
             let api_key = api_key.clone();
             move || get_bearer(api_key.clone())
@@ -285,7 +302,6 @@ impl ProxyHttp for MyProxy {
 
         info!("Request sent to upstream.");
 
-
         Ok(())
     }
 }
@@ -304,16 +320,6 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         run_args.port
     );
 
-    match run_args.bucket_creds_fetcher {
-        Some(ref fetcher) => {
-            info!("Bucket creds fetcher provided: {:?}", fetcher);
-            let _d = get_api_key_for_bucket(py, fetcher, "bucket01".to_string());
-        }
-        None => {
-            info!("No bucket creds fetcher provided");
-        }
-    }
-
     let cosmap = parse_cos_map(py, &run_args.cos_map).unwrap();
 
     let mut my_server = Server::new(None).unwrap();
@@ -329,9 +335,15 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
             secrets_cache: SecretsCache::new(),
             auth_cache: AuthCache::new(),
             validator,
+            bucket_creds_fetcher: run_args
+                .bucket_creds_fetcher
+                .as_ref()
+                .map(|v| v.clone_ref(py)),
         },
     );
-    my_proxy.add_tcp("0.0.0.0:6190");
+
+    let addr = format!("0.0.0.0:{}", run_args.port);
+    my_proxy.add_tcp(addr.as_str());
 
     my_server.add_service(my_proxy);
 
@@ -340,30 +352,15 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     info!("server running ...");
 }
 
-
-fn get_api_key_for_bucket(py: Python, callback: &PyObject, bucket: String) -> PyResult<()> {
-    match callback.call1(py, (bucket,)) {
-        Ok(result) => {
-            let content = result.extract::<String>(py)?;
-            info!("Callback returned: {}...", content.chars().take(4).collect::<String>());
-            Ok(())
-        }
-        Err(err) => {
-            error!("Python callback raised an exception: {:?}", err);
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "Failed to call callback due to an inner Python exception",
-            ));
-        }
-    }
-}
-
 #[pyfunction]
 pub fn start_server(py: Python, run_args: &ProxyServerConfig) -> PyResult<()> {
-    rustls::crypto::ring::default_provider().install_default().expect("Failed to install rustls crypto provider");
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     dotenv().ok();
 
-    run_server(py, &run_args);
+    run_server(py, run_args);
 
     Ok(())
 }
@@ -372,5 +369,6 @@ pub fn start_server(py: Python, run_args: &ProxyServerConfig) -> PyResult<()> {
 fn object_storage_proxy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(start_server, m)?)?;
     m.add_class::<ProxyServerConfig>()?;
+    m.add_class::<CosMapItem>()?;
     Ok(())
 }

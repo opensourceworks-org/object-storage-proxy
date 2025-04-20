@@ -5,7 +5,7 @@ use tracing::{error, info};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
-    time::{Instant, Duration},
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug)]
@@ -20,9 +20,15 @@ pub struct AuthCache {
     locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
+impl Default for AuthCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuthCache {
     pub fn new() -> Self {
-        AuthCache { 
+        AuthCache {
             inner: Arc::new(RwLock::new(HashMap::new())),
             locks: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -71,10 +77,13 @@ impl AuthCache {
 
         {
             let mut map = self.inner.write().unwrap();
-            map.insert(key.to_string(), AuthEntry {
-                authorized: decision,
-                expires_at: Instant::now() + ttl,
-            });
+            map.insert(
+                key.to_string(),
+                AuthEntry {
+                    authorized: decision,
+                    expires_at: Instant::now() + ttl,
+                },
+            );
         }
         info!("Authorization cache updated for key.");
         Ok(decision)
@@ -100,13 +109,12 @@ pub async fn validate_request(
     bucket: &str,
     callback: PyObject,
 ) -> Result<bool, String> {
-
     let token = token.to_string();
     let bucket = bucket.to_string();
 
     let authorized = task::spawn_blocking(move || {
-        Python::with_gil(|py| {
-            match callback.call1(py, (token.as_str(), bucket.as_str())) {
+        Python::with_gil(
+            |py| match callback.call1(py, (token.as_str(), bucket.as_str())) {
                 Ok(result_obj) => result_obj
                     .extract::<bool>(py)
                     .map_err(|_| "Failed to extract boolean".to_string()),
@@ -114,13 +122,11 @@ pub async fn validate_request(
                     error!("Python callback error: {:?}", e);
                     Err("Inner Python exception".to_string())
                 }
-            }
-        })
+            },
+        )
     })
     .await
     .map_err(|e| format!("Join error: {:?}", e))??;
 
     Ok(authorized)
 }
-
-    

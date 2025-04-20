@@ -10,19 +10,38 @@
 
 A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy IBM Cloud Object Storage buckets.
 
-- [x] Takes a Python validator function and cos bucket mapping list of tuples.
-- [ ] The validation is cached with optional ttl.
+- [x] Takes a Python validator function and cos bucket dictionary.
+- [x] The validation is cached with optional ttl.
 - [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration.
-- [ ] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket.
+- [x] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket.
 - [ ] HMAC support: passing in access and secret id keys, will be used to sign the request
 
-The bucket mapping list consists of tuples:
-    - bucket
+The bucket dict contains for each bucket:
     - endpoint host
     - port
-    - api key
+    - api key (optional)
+    - ttl (optional, default 300) -> keep this reasonably short, but size to your needs
 
-    ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey)
+```json
+cos_map = {
+    "bucket1": {
+        "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+        "port": 443,
+        "apikey": apikey,
+        "ttl": 0
+    },
+    "bucket2": {
+        "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+        "port": 443,
+        "apikey": apikey
+    },
+    "proxy-bucket01": {
+        "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+        "port": 443,
+        "ttl": 300
+    }
+}
+```
 
 
 ### secrets
@@ -48,61 +67,7 @@ your client (aws s3 compatible) -> http(s)://this-proxy/bucket01 -> https://buck
 Pass in a function which maps bucket to instance (credentials), and a function to map bucket to port (endpoint)
 
 
-```text
-     ┌──────┐           ┌────────────┐                                              ┌───────────┐          ┌───────┐
-     │Client│           │ReverseProxy│                                              │IAM_Service│          │IBM_COS│
-     └───┬──┘           └──────┬─────┘                                              └─────┬─────┘          └───┬───┘
-         │Path-style Request  ┌┴┐                                                         │                    │    
-         │──────────────────> │ │                                                         │                    │    
-         │                    │ │                                                         │                    │    
-         │                    │ │ ────┐                                                   │                    │    
-         │                    │ │     │ Extract credentials from request                  │                    │    
-         │                    │ │ <───┘                                                   │                    │    
-         │                    │ │                                                         │                    │    
-         │                    │ │ ────┐                                                   │                    │    
-         │                    │ │     │ Check cache for valid credentials                 │                    │    
-         │                    │ │ <───┘                                                   │                    │    
-         │                    │ │                                                         │                    │    
-         │                    │ │                                                         │                    │    
-         │    ╔══════╤════════╪═╪═════════════════════════════════════════════════════════╪═══════════════╗    │    
-         │    ║ ALT  │  Credentials Not Found or Expired                                  │               ║    │    
-         │    ╟──────┘        │ │                                                         │               ║    │    
-         │    ║               │ │                Request IAM Verification                ┌┴┐              ║    │    
-         │    ║               │ │ ──────────────────────────────────────────────────────>│ │              ║    │    
-         │    ║               │ │                                                        └┬┘              ║    │    
-         │    ║               │ │               Return Verified Credentials               │               ║    │    
-         │    ║               │ │ <─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│               ║    │    
-         │    ║               │ │                                                         │               ║    │    
-         │    ║               │ │ ────┐                                                   │               ║    │    
-         │    ║               │ │     │ Cache credentials                                 │               ║    │    
-         │    ║               │ │ <───┘                                                   │               ║    │    
-         │    ╠═══════════════╪═╪═════════════════════════════════════════════════════════╪═══════════════╣    │    
-         │    ║ [Credentials Valid]                                                       │               ║    │    
-         │    ║               │ │ ────┐                                                   │               ║    │    
-         │    ║               │ │     │ Use Cached Credentials                            │               ║    │    
-         │    ║               │ │ <───┘                                                   │               ║    │    
-         │    ╚═══════════════╪═╪═════════════════════════════════════════════════════════╪═══════════════╝    │    
-         │                    │ │                                                         │                    │    
-         │                    │ │ ────┐                                                   │                    │    
-         │                    │ │     │ Translate path-style to virtual-style request     │                    │    
-         │                    │ │ <───┘                                                   │                    │    
-         │                    │ │                                                         │                    │    
-         │                    │ │ ────┐                                                   │                    │    
-         │                    │ │     │ Handle secrets and endpoint (incl. port)          │                    │    
-         │                    │ │ <───┘                                                   │                    │    
-         │                    │ │                                                         │                    │    
-         │                    │ │                        Forward Virtual-style Request    │                   ┌┴┐   
-         │                    │ │ ───────────────────────────────────────────────────────────────────────────>│ │   
-         │                    │ │                                                         │                   │ │   
-         │                    │ │                                  Response               │                   │ │   
-         │                    │ │ <─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│ │   
-         │                    └┬┘                                                         │                   └┬┘   
-         │  Return Response    │                                                          │                    │    
-         │<─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │                                                          │                    │    
-     ┌───┴──┐           ┌──────┴─────┐                                              ┌─────┴─────┐          ┌───┴───┐
-     │Client│           │ReverseProxy│                                              │IAM_Service│          │IBM_COS│
-     └──────┘           └────────────┘                                              └───────────┘          └───────┘
-```
+![request lifecycle](img/request_lifecycle.svg)
 
 # authentication & authorization
 The advantage is we can plug in a python authentication function and another function for authorization, allowing for fine-grained control.
@@ -150,7 +115,7 @@ import random
 load_dotenv()
 
 
-def docreds(bucket):
+def docreds(bucket) -> str:
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
@@ -160,27 +125,38 @@ def docreds(bucket):
 
 def do_validation(token: str, bucket: str) -> bool:
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
-    return random.choice([True, False])
+    # return random.choice([True, False])  # pointless now since cached
+    return True
 
 
-def main():
-
+def main() -> None:
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
 
-
-    cos_mapping = [
-        ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
-        ("bucket2", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
-        ("proxy-bucket01", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
-    ]
-
+    cos_map = {
+        "bucket1": {
+            "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "port": 443,
+            "apikey": apikey,
+            "ttl": 0
+        },
+        "bucket2": {
+            "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "port": 443,
+            "apikey": apikey
+        },
+        "proxy-bucket01": {
+            "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "port": 443,
+            "ttl": 300
+        }
+    }
 
     ra = ProxyServerConfig(
         bucket_creds_fetcher=docreds,
         validator=do_validation,
-        cos_map=cos_mapping,
+        cos_map=cos_map,
         port=6190
     )
 
@@ -238,5 +214,5 @@ PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
 - [x] cache credentials
 - [x] pass in bucket/instance and bucket/port config
 - [x] <del>split in workspace crate with core, cli and python crates</del> (too many specifics for python)
-- [ ] config mgmt
-- [ ] cache authorization (with optional ttl)
+- [x] config mgmt
+- [x] cache authorization (with optional ttl)

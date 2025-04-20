@@ -19,6 +19,18 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions/setup-rust@v1
+      - name: Run cargo tests
+        run: cargo test --all-featuresf
+
+
   linux:
     runs-on: ${{ matrix.platform.runner }}
 
@@ -193,7 +205,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     # if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs: [linux, macos, sdist]
+    needs: [test, linux, macos, sdist]
     permissions:
       # Use to sign the release artifacts
       id-token: write
