@@ -14,10 +14,12 @@ use http::uri::Authority;
 
 use pyo3::types::{PyModule, PyModuleMethods};
 use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
+use utils::validator::{validate_request, AuthCache};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use dotenv::dotenv;
 use pingora::Result;
@@ -32,6 +34,7 @@ pub mod credentials;
 
 pub mod utils;
 use credentials::secrets_proxy::{SecretsCache, get_bearer};
+use crate::parsers::credentials::parse_token_from_header;
 
 
 static REQ_COUNTER: Mutex<usize> = Mutex::new(0);
@@ -87,12 +90,14 @@ pub struct MyProxy {
     cos_endpoint: String,
     cos_mapping: HashMap<String, CosMapItem>,
     secrets_cache: SecretsCache,
+    auth_cache: AuthCache,
     validator: Option<PyObject>,
 }
 
 pub struct MyCtx {
     cos_mapping: HashMap<String, CosMapItem>,
     secrets_cache: SecretsCache,
+    auth_cache: AuthCache,
     validator: Option<PyObject>,
 }
 
@@ -103,6 +108,7 @@ impl ProxyHttp for MyProxy {
         MyCtx {
             cos_mapping: self.cos_mapping.clone(),
             secrets_cache: self.secrets_cache.clone(),
+            auth_cache: self.auth_cache.clone(),
             validator: self
                 .validator
                 .as_ref()
@@ -110,14 +116,11 @@ impl ProxyHttp for MyProxy {
         }
     }
 
-    // TODO: cache authorization like we do for bearer tokens
     async fn request_filter(
         &self,
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<bool> {
-
-        
         let path = session.req_header().uri.path();
 
         let parse_path_result = parse_path(path);
@@ -132,25 +135,41 @@ impl ProxyHttp for MyProxy {
             .req_header()
             .headers
             .get("authorization")
-            .map(|h| h.to_str().unwrap())
-            .unwrap_or("");
+            .and_then(|h| h.to_str().ok())
+            .map(ToString::to_string)
+            .unwrap_or_default();
+
 
         let is_authorized = if let Some(py_cb) = &ctx.validator {
-            Python::with_gil(|py| {
-                crate::utils::validator::validate_request(
-                    auth_header,
-                    &bucket,
-                    py,
-                    py_cb,
+            let token = parse_token_from_header(&auth_header)
+                .map_err(|_| pingora::Error::new_str("Failed to parse token"))?
+                .1
+                .to_string();
+            let cache_key = format!("{}:{}", token, bucket);
+
+            let bucket_clone = bucket.to_string();
+            let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
+    
+            ctx.auth_cache
+                .get_or_validate(
+                    &cache_key,
+                    Duration::from_secs(300),  // keep this short enough , TODO: pass from python
+                    move || {
+                        let tk = token.clone();
+                        let bu = bucket_clone.clone();
+                        let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
+                        async move {
+                            validate_request(&tk, &bu, cb)
+                                .await
+                                .map_err(|_| pingora::Error::new_str("Validator error"))
+                        }
+                    },
                 )
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))
-                .and_then(|ok| Ok(ok))
-            })
-            .map_err(|_| pingora::Error::new_str("Python validator panicked"))?
+                .await?
         } else {
             true
         };
-
+    
         if !is_authorized {
             info!("Access denied for bucket: {}.  End of request.", bucket);
             session.respond_error(401).await?;
@@ -308,6 +327,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
             cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(),
             cos_mapping: cosmap,
             secrets_cache: SecretsCache::new(),
+            auth_cache: AuthCache::new(),
             validator,
         },
     );

@@ -12,8 +12,6 @@ pub struct CosMapItem {
 
 pub(crate) fn parse_cos_map(py: Python, cos_dict: &PyObject) -> PyResult<HashMap<String, CosMapItem>> {
     let mut cos_map: HashMap<String, CosMapItem> = HashMap::new();
-    // let cos_tuples: Result<Vec<(String, String, u16, Option<String>)>, PyErr> =
-    //     cos_dict.extract(py);
     
     let tuples: Vec<(String, String, u16, Option<String>)> = cos_dict.extract(py)?;
     for (bucket, host, port, api_key) in tuples {

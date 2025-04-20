@@ -140,9 +140,7 @@ pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn s
         .await?;
 
     if resp.status().is_success() {
-        // println!("Response: {:?}", resp);
         let iam_response: IamResponse = resp.json().await?;
-        // println!("Received access token: {:?}", iam_response);
         info!("Received access token");
         Ok(iam_response)
     } else {
