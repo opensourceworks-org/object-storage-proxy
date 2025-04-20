@@ -67,7 +67,7 @@ your client (aws s3 compatible) -> http(s)://this-proxy/bucket01 -> https://buck
 Pass in a function which maps bucket to instance (credentials), and a function to map bucket to port (endpoint)
 
 
-![request lifecycle](img/request_lifecycle.svg)
+![request lifecycle](https://raw.githubusercontent.com/opensourceworks-org/object-storage-proxy/62adceaddefa2ad911d80fb13a3f9cec2eff8829/img/request_lifecycle.svg)
 
 # authentication & authorization
 The advantage is we can plug in a python authentication function and another function for authorization, allowing for fine-grained control.
