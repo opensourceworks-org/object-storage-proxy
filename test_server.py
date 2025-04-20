@@ -17,7 +17,8 @@ def docreds(bucket) -> str:
 
 def do_validation(token: str, bucket: str) -> bool:
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
-    return random.choice([True, False])
+    # return random.choice([True, False])
+    return True
 
 
 def main() -> None:
@@ -25,13 +26,22 @@ def main() -> None:
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
 
-
-    cos_mapping = [
-        ("bucket1", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
-        ("bucket2", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
-        ("proxy-bucket01", "s3.eu-de.cloud-object-storage.appdomain.cloud", 443, apikey),
-    ]
-
+    cos_mapping = {
+        "bucket1": {
+            "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "port": 443,
+            "apikey": apikey
+        },
+        "bucket2": {
+            "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "port": 443,
+            "apikey": apikey
+        },
+        "proxy-bucket01": {
+            "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "port": 443
+        }
+    }
 
     ra = ProxyServerConfig(
         bucket_creds_fetcher=docreds,

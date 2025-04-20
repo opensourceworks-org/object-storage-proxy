@@ -313,7 +313,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
             info!("No bucket creds fetcher provided");
         }
     }
-    dbg!(&run_args.cos_map);
+
     let cosmap = parse_cos_map(py, &run_args.cos_map).unwrap();
 
     let mut my_server = Server::new(None).unwrap();
@@ -335,11 +335,11 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
 
     my_server.add_service(my_proxy);
 
-    // my_server.run_forever()
     py.allow_threads(|| my_server.run_forever());
 
     info!("server running ...");
 }
+
 
 fn get_api_key_for_bucket(py: Python, callback: &PyObject, bucket: String) -> PyResult<()> {
     match callback.call1(py, (bucket,)) {
