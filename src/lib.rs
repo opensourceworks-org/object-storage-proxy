@@ -149,9 +149,6 @@ impl ProxyHttp for MyProxy {
             .map(ToString::to_string)
             .unwrap_or_default();
 
-
-
-
         let ttl = ctx
             .cos_mapping
             .get(bucket)
@@ -221,7 +218,6 @@ impl ProxyHttp for MyProxy {
             error!("No API key available for bucket: {}", hdr_bucket);
             return Err(pingora::Error::new_str("No API key configured for bucket"));
         };
-
 
         Ok(false)
     }
@@ -378,7 +374,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,
         MyProxy {
-            cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(),
+            cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(),  // a default COS endpoint, as good as any
             cos_mapping: cosmap,
             secrets_cache: SecretsCache::new(),
             auth_cache: AuthCache::new(),
