@@ -10,7 +10,7 @@
 
 A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy IBM Cloud Object Storage buckets.
 
-- [x] Takes a Python validator function and cos bucket dictionary.
+- [x] Takes a Python authorization and api_key fetch callback function and cos bucket dictionary.
 - [x] The validation is cached with optional ttl.
 - [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration.
 - [x] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket.
@@ -216,3 +216,5 @@ PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
 - [x] <del>split in workspace crate with core, cli and python crates</del> (too many specifics for python)
 - [x] config mgmt
 - [x] cache authorization (with optional ttl)
+- [x] http frontend
+- [ ] https frontend
