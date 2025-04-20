@@ -7,7 +7,7 @@ import random
 load_dotenv()
 
 
-def docreds(bucket):
+def docreds(bucket) -> str:
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
@@ -20,8 +20,7 @@ def do_validation(token: str, bucket: str) -> bool:
     return random.choice([True, False])
 
 
-def main():
-
+def main() -> None:
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")

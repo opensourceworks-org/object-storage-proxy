@@ -1,5 +1,6 @@
 #![warn(clippy::all)]
 
+use parsers::cos_map::{parse_cos_map, CosMapItem};
 use tracing::{error, info};
 
 use tracing_subscriber::EnvFilter;
@@ -81,39 +82,6 @@ impl ProxyServerConfig {
     }
 }
 
-#[derive(FromPyObject, Debug, Clone)]
-pub struct CosMapItem {
-    pub host: String,
-    pub port: u16,
-    pub api_key: Option<String>,
-}
-
-fn parse_cos_map(py: Python, cos_dict: &PyObject) -> PyResult<HashMap<String, CosMapItem>> {
-    let mut cos_map: HashMap<String, CosMapItem> = HashMap::new();
-    // let cos_tuples: Result<Vec<(String, String, u16, Option<String>)>, PyErr> =
-    //     cos_dict.extract(py);
-    
-    let tuples: Vec<(String, String, u16, Option<String>)> = cos_dict.extract(py)?;
-    for (bucket, host, port, api_key) in tuples {
-        let host = host.to_string();
-        let port = port;
-        let bucket = bucket.to_string();
-        let api_key = api_key.map(|s| s.to_string());
-
-        cos_map.insert(
-            bucket.clone(),
-            CosMapItem {
-                host: host.clone(),
-                port,
-                api_key: api_key.clone(),
-            },
-        );
-    };
-
-    Ok(cos_map)
-
-
-}
 
 pub struct MyProxy {
     cos_endpoint: String,
@@ -184,6 +152,7 @@ impl ProxyHttp for MyProxy {
         };
 
         if !is_authorized {
+            info!("Access denied for bucket: {}.  End of request.", bucket);
             session.respond_error(401).await?;
             return Ok(true);
         }
@@ -268,6 +237,7 @@ impl ProxyHttp for MyProxy {
             return Err(pingora::Error::new_str("No API key configured for bucket"));
         };
 
+        // partial, a closure with the api_key already bound to the get_bearer function
         let bearer_fetcher = {
             let api_key = api_key.clone();
             move || get_bearer(api_key.clone())
