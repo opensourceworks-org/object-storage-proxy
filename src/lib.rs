@@ -49,7 +49,10 @@ pub struct ProxyServerConfig {
     pub cos_map: PyObject,
 
     #[pyo3(get, set)]
-    pub port: u16,
+    pub http_port: u16,
+
+    #[pyo3(get, set)]
+    pub https_port: u16,
 
     #[pyo3(get, set)]
     pub validator: Option<Py<PyAny>>,
@@ -58,9 +61,10 @@ pub struct ProxyServerConfig {
 impl Default for ProxyServerConfig {
     fn default() -> Self {
         ProxyServerConfig {
-            bucket_creds_fetcher: None,
             cos_map: Python::with_gil(|py| py.None()),
-            port: 6190,
+            bucket_creds_fetcher: None,
+            http_port: 6190,
+            https_port: 443,
             validator: None,
         }
     }
@@ -69,16 +73,27 @@ impl Default for ProxyServerConfig {
 #[pymethods]
 impl ProxyServerConfig {
     #[new]
+    #[pyo3(
+        signature = (
+            cos_map,
+            bucket_creds_fetcher = None,
+            http_port = 6190,
+            https_port = 443,
+            validator = None
+        )
+    )]
     pub fn new(
-        bucket_creds_fetcher: Option<PyObject>,
         cos_map: PyObject,
-        port: u16,
+        bucket_creds_fetcher: Option<PyObject>,
+        http_port: u16,
+        https_port: u16,
         validator: Option<PyObject>,
     ) -> Self {
         ProxyServerConfig {
-            bucket_creds_fetcher,
             cos_map,
-            port,
+            bucket_creds_fetcher,
+            http_port,
+            https_port,
             validator,
         }
     }
@@ -248,7 +263,11 @@ impl ProxyHttp for MyProxy {
             }
         };
 
-        let addr = (endpoint.clone(), 443);
+        let port = bucket_config
+            .and_then(|config| Some(config.port))
+            .unwrap_or(443);
+
+        let addr = (endpoint.clone(), port);
 
         let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
         peer.options.verify_cert = false;
@@ -351,8 +370,8 @@ pub fn init_tracing() {
 pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     init_tracing();
     info!(
-        "Logger initialized; starting server on port {}",
-        run_args.port
+        "Logger initialized; starting server on http port {} and https port {}",
+        run_args.http_port, run_args.https_port
     );
 
     let cosmap = parse_cos_map(py, &run_args.cos_map).unwrap();
@@ -377,9 +396,21 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         },
     );
 
-    let addr = format!("0.0.0.0:{}", run_args.port);
+    let addr = format!("0.0.0.0:{}", run_args.http_port);
     my_proxy.add_tcp(addr.as_str());
 
+    let cert_path = std::env::var("TLS_CERT_PATH")
+        .expect("Set TLS_CERT_PATH to the PEM certificate file");
+    let key_path  = std::env::var("TLS_KEY_PATH")
+        .expect("Set TLS_KEY_PATH to the PEM private‑key file");
+
+    let mut tls = pingora::listeners::tls::TlsSettings::intermediate(&cert_path, &key_path)
+        .expect("failed to build TLS settings");
+
+    tls.enable_h2();
+    let https_addr = format!("0.0.0.0:{}", run_args.https_port);
+    my_proxy
+        .add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
     my_server.add_service(my_proxy);
 
     py.allow_threads(|| my_server.run_forever());

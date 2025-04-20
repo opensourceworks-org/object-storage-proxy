@@ -157,7 +157,8 @@ def main() -> None:
         bucket_creds_fetcher=docreds,
         validator=do_validation,
         cos_map=cos_map,
-        port=6190
+        http_port=6190,
+        https_port=8443
     )
 
     start_server(ra)
@@ -184,7 +185,7 @@ Server output:
 
 ```log
 $ uv run python test_server.py
-2025-04-19T13:19:54.402023+02:00  INFO object_storage_proxy: Logger initialized; starting server on port 6190
+2025-04-19T13:19:54.402023+02:00  INFO object_storage_proxy: Logger initialized; starting server on http port 6190 and https port 8443
 2025-04-19T13:19:54.402361+02:00  INFO object_storage_proxy: Bucket creds fetcher provided: Py(0x100210680)
 Fetching credentials for bucket01...
 2025-04-19T13:19:54.402485+02:00  INFO object_storage_proxy: Callback returned: Kn2t...
@@ -206,6 +207,23 @@ PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
 2025-04-19T13:20:01.739922+02:00  INFO object_storage_proxy: Request sent to upstream.
 ```
 
+# test
+
+See the included [python test script](./test_server.py).
+
+Create self-signed certificates and export the environment variables:
+
+```bash
+openssl req -x509 -newkey rsa:4096 -sha256 -nodes \
+        -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+```
+
+```bash
+export TLS_CERT_PATH=/full/path/cert.pem
+export TLS_KEY_PATH=/full/path/key.pem
+```
+
+
 
 # Status
 
@@ -217,4 +235,4 @@ PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
 - [x] config mgmt
 - [x] cache authorization (with optional ttl)
 - [x] http frontend
-- [ ] https frontend
+- [x] https frontend
