@@ -28,7 +28,7 @@ jobs:
       - name: Setup Rust
         uses: PyO3/maturin-action@v1
       - name: Run cargo tests
-        run: cargo test --all-featuresf
+        run: cargo test --all-features
 
 
   linux:
