@@ -17,6 +17,7 @@ A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://gi
 - [ ] HMAC support: passing in access and secret id keys, will be used to sign the request
 
 The bucket dict contains for each bucket:
+
     - endpoint host
     - port
     - api key (optional)
@@ -235,4 +236,4 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [x] config mgmt
 - [x] cache authorization (with optional ttl)
 - [x] http frontend
-- [x] https frontend
+- [x] https frontend (supports HTTP/2)
