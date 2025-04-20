@@ -154,9 +154,9 @@ def main() -> None:
     }
 
     ra = ProxyServerConfig(
+        cos_map=cos_map,
         bucket_creds_fetcher=docreds,
         validator=do_validation,
-        cos_map=cos_map,
         http_port=6190,
         https_port=8443
     )
