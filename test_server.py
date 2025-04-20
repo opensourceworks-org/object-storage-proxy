@@ -17,8 +17,8 @@ def docreds(bucket) -> str:
 
 def do_validation(token: str, bucket: str) -> bool:
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
-    return random.choice([True, False])  # pointless now since cached
-    # return False
+    # return random.choice([True, False])  # pointless now since cached
+    return True
 
 
 def main() -> None:
@@ -41,7 +41,7 @@ def main() -> None:
         "proxy-bucket01": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
             "port": 443,
-            "ttl": 1
+            "ttl": 300
         }
     }
 

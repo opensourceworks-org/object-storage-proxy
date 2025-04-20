@@ -1,40 +1,33 @@
 #![warn(clippy::all)]
-
-use parsers::cos_map::{CosMapItem, parse_cos_map};
-use tracing::{error, info};
-
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::time::ChronoLocal;
-
-use pyo3::prelude::*;
-
 use async_trait::async_trait;
+use dotenv::dotenv;
 use http::Uri;
 use http::uri::Authority;
-
-use pyo3::types::{PyModule, PyModuleMethods};
-use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
-use std::collections::HashMap;
-use std::fmt::Debug;
-use utils::validator::{AuthCache, validate_request};
-
-use std::sync::Mutex;
-use std::time::Duration;
-
-use dotenv::dotenv;
-use pingora::Result;
+use parsers::cos_map::{CosMapItem, parse_cos_map};
 use pingora::proxy::{ProxyHttp, Session};
+use pingora::Result;
 use pingora::server::Server;
 use pingora::upstreams::peer::HttpPeer;
+use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
+use pyo3::prelude::*;
+use pyo3::types::{PyModule, PyModuleMethods};
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::sync::Mutex;
+use std::time::Duration;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::time::ChronoLocal;
+use tracing::{error, info};
 
 pub mod parsers;
 use parsers::path::parse_path;
+use parsers::credentials::parse_token_from_header;
 
 pub mod credentials;
+use credentials::secrets_proxy::{SecretsCache, get_api_key_for_bucket, get_bearer};
 
 pub mod utils;
-use crate::parsers::credentials::parse_token_from_header;
-use credentials::secrets_proxy::{SecretsCache, get_api_key_for_bucket, get_bearer};
+use utils::validator::{AuthCache, validate_request};
 
 static REQ_COUNTER: Mutex<usize> = Mutex::new(0);
 
@@ -240,6 +233,7 @@ impl ProxyHttp for MyProxy {
     ) -> Result<Box<HttpPeer>> {
         let mut req_counter = REQ_COUNTER.lock().unwrap();
         *req_counter += 1;
+        info!("Request count: {}", *req_counter);
 
         let path = session.req_header().uri.path();
 
@@ -293,7 +287,7 @@ impl ProxyHttp for MyProxy {
 
         let endpoint = match bucket_config {
             Some(config) => {
-                format!("{}.{}", bucket, config.host)
+                format!("{}.{}:{}", bucket, config.host, config.port)
             }
             None => {
                 format!("{}.{}", bucket, self.cos_endpoint)
