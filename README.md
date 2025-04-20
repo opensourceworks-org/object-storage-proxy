@@ -1,5 +1,6 @@
 [![CI](https://github.com/opensourceworks-org/object-storage-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/opensourceworks-org/object-storage-proxy/actions/workflows/ci.yml)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/object-storage-proxy)
+![PyPI - version](https://img.shields.io/pypi/v/object-storage-proxy)
 
 
 # <object-storage-proxy ⚡> Yet Another Object Storage Reverse Proxy
