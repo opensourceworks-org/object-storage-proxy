@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
-        uses: actions/setup-rust@v1
+        uses: PyO3/maturin-action@v1
       - name: Run cargo tests
         run: cargo test --all-featuresf
 
