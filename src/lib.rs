@@ -131,6 +131,8 @@ impl ProxyHttp for MyProxy {
 
         let (_, (bucket, _)) = parse_path(path).unwrap();
 
+        let hdr_bucket = bucket.to_owned();
+
         let auth_header = session
             .req_header()
             .headers
@@ -138,6 +140,9 @@ impl ProxyHttp for MyProxy {
             .and_then(|h| h.to_str().ok())
             .map(ToString::to_string)
             .unwrap_or_default();
+
+
+
 
         let ttl = ctx
             .cos_mapping
@@ -180,6 +185,35 @@ impl ProxyHttp for MyProxy {
             session.respond_error(401).await?;
             return Ok(true);
         }
+
+        let bucket_config = ctx.cos_mapping.get(&hdr_bucket);
+
+        let api_key = bucket_config.and_then(|config| config.api_key.clone());
+        let _api_key = if let Some(key) = api_key {
+            info!("Using API key from config for bucket: {}", hdr_bucket);
+            key
+        } else if let Some(py_cb) = &ctx.bucket_creds_fetcher {
+            info!(
+                "No key provided in config. Fetching API key for bucket: {}",
+                hdr_bucket
+            );
+            match get_api_key_for_bucket(py_cb, hdr_bucket.clone()).await {
+                Ok(k) => k,
+                Err(err) => {
+                    error!(
+                        "Error fetching API key for bucket {}: {:?}",
+                        hdr_bucket, err
+                    );
+                    return Err(pingora::Error::new_str(
+                        "Failed to fetch API key for bucket",
+                    ));
+                }
+            }
+        } else {
+            error!("No API key available for bucket: {}", hdr_bucket);
+            return Err(pingora::Error::new_str("No API key configured for bucket"));
+        };
+
 
         Ok(false)
     }
@@ -247,6 +281,7 @@ impl ProxyHttp for MyProxy {
             }
         };
 
+        // todo: we already know we have an api key here (request_filter), we just need to use it
         let api_key = bucket_config.and_then(|config| config.api_key.clone());
         let api_key = if let Some(key) = api_key {
             info!("Using API key from config for bucket: {}", hdr_bucket);
