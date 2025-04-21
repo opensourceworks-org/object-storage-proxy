@@ -52,17 +52,22 @@ def main() -> None:
     cos_map = {
         "bucket1": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
             "port": 443,
             "apikey": apikey,
             "ttl": 0
         },
         "bucket2": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
             "port": 443,
             "apikey": apikey
         },
         "proxy-bucket01": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
+            # "access_key": os.getenv("ACCESS_KEY"),
+            # "secret_key": os.getenv("SECRET_KEY"),
             "port": 443,
             "ttl": 300
         }
@@ -74,7 +79,7 @@ def main() -> None:
         validator=do_validation,
         http_port=6190,
         https_port=8443,
-        threads=4,
+        threads=1,
     )
 
     start_server(ra)

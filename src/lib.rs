@@ -31,7 +31,7 @@ use parsers::path::parse_path;
 use parsers::credentials::parse_token_from_header;
 
 pub mod credentials;
-use credentials::secrets_proxy::{SecretsCache, get_api_key_for_bucket, get_bearer};
+use credentials::{secrets_proxy::{get_bearer, get_credential_for_bucket, SecretsCache}, signer::sign_request};
 
 pub mod utils;
 use utils::validator::{AuthCache, validate_request};
@@ -246,46 +246,41 @@ impl ProxyHttp for MyProxy {
             map.get(&hdr_bucket).cloned()
         };
 
-        let api_key = bucket_config.clone().and_then(|config| config.api_key.clone());
-        let _api_key = if let Some(key) = api_key {
-            info!("Using API key from config for bucket: {}", hdr_bucket);
-            key
-        } else if let Some(py_cb) = &ctx.bucket_creds_fetcher {
-            info!(
-                "No key provided in config. Fetching API key for bucket: {}",
-                hdr_bucket
-            );
-            
-            match get_api_key_for_bucket(py_cb, hdr_bucket.clone()).await {
-                Ok(k) => {
-                    info!("Fetched API key for bucket and storing in config: {}", &hdr_bucket);
-                    // insert the key into the config, there is no need to check if config exists,
-                    // we wouldn't have gotten this far without it.
-                    ctx.cos_mapping.write().await.insert(
-                        hdr_bucket.clone(),
-                        CosMapItem {
-                            host: bucket_config.clone().unwrap().host.clone(),
-                            port: bucket_config.clone().unwrap().port,
-                            api_key: Some(k.clone()),
-                            ttl: bucket_config.clone().unwrap().ttl,
-                        },
-                    );
-                    k
-                },
-                Err(err) => {
-                    error!(
-                        "Error fetching API key for bucket {}: {:?}",
-                        hdr_bucket, err
-                    );
-                    return Err(pingora::Error::new_str(
-                        "Failed to fetch API key for bucket",
-                    ));
-                }
+        // we have to check for some available credentials here to be able to return unauthorized already if not
+        match bucket_config.clone() {
+            Some(mut config) => {
+                // (1) build an optional fetcher that matches ensure_credentials’ signature
+                let fetcher_opt = ctx.bucket_creds_fetcher.as_ref().map(|py_cb| {
+                    // clone the PyObject so the async block is 'static
+                    let cb = Python::with_gil(|py| py_cb.clone_ref(py));
+                    move |bucket: String| async move {
+                        get_credential_for_bucket(&cb, bucket)
+                            .await
+                            .map_err(|e| e.into())          // Convert PyErr → Box<dyn Error>
+                    }
+                });
+
+                // (2) make sure we now *mutably* update the struct
+                config
+                    .ensure_credentials(&hdr_bucket, fetcher_opt)
+                    .await
+                    .map_err(|e| {
+                        error!("Credential check failed for {hdr_bucket}: {e}");
+                        pingora::Error::new_str("Credential check failed")
+                    })?;
+
+                // (3) persist any newly‑fetched creds back into the shared map
+                ctx.cos_mapping
+                    .write()
+                    .await
+                    .insert(hdr_bucket.clone(), config);
             }
-        } else {
-            error!("No API key available for bucket: {}", hdr_bucket);
-            return Err(pingora::Error::new_str("No API key configured for bucket"));
-        };
+            None => {
+                error!("No configuration available for bucket: {hdr_bucket}");
+                return Err(pingora::Error::new_str("No configuration available for bucket"));
+            }
+        }
+
 
         Ok(false)
     }
@@ -352,56 +347,21 @@ impl ProxyHttp for MyProxy {
             _ => String::new(),
         };
 
-        // let long_lived_cos_mapping = ctx.cos_mapping.read().unwrap();
-        // let bucket_config = long_lived_cos_mapping.get(&hdr_bucket);
         let bucket_config = {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
 
         let endpoint = match bucket_config.clone() {
-            Some(config) => {
-                format!("{}.{}:{}", bucket, config.host, config.port)
-            }
-            None => {
-                format!("{}.{}", bucket, self.cos_endpoint)
-            }
-        };
-
-        // todo: we already know we have an api key here (request_filter), we just need to use it
-        let api_key = bucket_config.clone().and_then(|config| config.api_key.clone());
-        let api_key = if let Some(key) = api_key {
-            info!("Using API key from config for bucket: {}", hdr_bucket);
-            key
-        } else if let Some(py_cb) = &ctx.bucket_creds_fetcher {
-            info!(
-                "No key provided in config. Fetching API key for bucket: {}",
-                hdr_bucket
-            );
-            match get_api_key_for_bucket(py_cb, hdr_bucket.clone()).await {
-                Ok(k) => k,
-                Err(err) => {
-                    error!(
-                        "Error fetching API key for bucket {}: {:?}",
-                        hdr_bucket, err
-                    );
-                    return Err(pingora::Error::new_str(
-                        "Failed to fetch API key for bucket",
-                    ));
+            Some(cfg) => {
+                if cfg.port == 443 {
+                    format!("{}.{}", bucket, cfg.host)
+                } else {
+                    format!("{}.{}:{}", bucket, cfg.host, cfg.port)
                 }
             }
-        } else {
-            error!("No API key available for bucket: {}", hdr_bucket);
-            return Err(pingora::Error::new_str("No API key configured for bucket"));
+            None => format!("{}.{}", bucket, self.cos_endpoint),
         };
-
-        // a partial, a closure with the api_key already bound to the get_bearer function
-        let bearer_fetcher = {
-            let api_key = api_key.clone();
-            move || get_bearer(api_key.clone())
-        };
-
-        let bearer_token = ctx.secrets_cache.get(&hdr_bucket, bearer_fetcher).await;
 
         // Box:leak the temporary string to get a static reference which will outlive the function
         let authority = Authority::from_static(Box::leak(endpoint.clone().into_boxed_str()));
@@ -413,14 +373,57 @@ impl ProxyHttp for MyProxy {
             .build()
             .expect("should build a valid URI");
 
-        info!("Sending request to upstream: {}", &new_uri);
 
-        upstream_request.set_uri(new_uri);
-
+        upstream_request.set_uri(new_uri.clone());
         upstream_request.insert_header("host", authority.as_str())?;
 
-        upstream_request
-            .insert_header("Authorization", format!("Bearer {}", bearer_token.unwrap()))?;
+
+        let (maybe_hmac, maybe_api_key) = match &bucket_config {
+            Some(cfg) => (cfg.has_hmac(), cfg.api_key.clone()),
+            None => (false, None),
+        };
+
+        if maybe_hmac {
+            info!("HMAC: Signing request for bucket: {}", hdr_bucket);
+            sign_request(upstream_request, bucket_config.as_ref().unwrap())
+                .await
+                .map_err(|e| {
+                    error!("Failed to sign request for {}: {e}", hdr_bucket);
+                    pingora::Error::new_str("Failed to sign request")
+                })?;
+            info!("Request signed for bucket: {}", hdr_bucket);
+            dbg!(&upstream_request.headers);
+        } else {
+            info!("Using API key for bucket: {}", hdr_bucket);
+            let api_key = match maybe_api_key {
+                Some(key) => key,
+                None => {
+                    // should be impossible because request_filter already
+                    // called ensure_credentials, but double‑check anyway
+                    error!("No API key for bucket {hdr_bucket}");
+                    return Err(pingora::Error::new_str("No API key configured for bucket"));
+                }
+            };
+
+            // closure captured by SecretsCache
+            let bearer_fetcher = {
+                let api_key = api_key.clone();
+                move || get_bearer(api_key.clone())
+            };
+
+            let bearer_token = ctx
+                .secrets_cache
+                .get(&hdr_bucket, bearer_fetcher)
+                .await
+                .ok_or_else(|| pingora::Error::new_str("Failed to obtain bearer token"))?;
+
+            upstream_request.insert_header(
+                "Authorization",
+                format!("Bearer {bearer_token}"),
+            )?;
+        }
+
+        info!("Sending request to upstream: {}", &new_uri);
 
         info!("Request sent to upstream.");
 
