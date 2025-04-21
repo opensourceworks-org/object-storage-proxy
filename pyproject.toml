@@ -29,7 +29,7 @@ features = ["pyo3/extension-module"]
 dev = []
 
 [project.urls]
-Homepage = "https://github.com/jeroenflvr/object-storage-proxy"
-Documentation = "https://github.com/jeroenflvr/object-storage-proxy/blob/main/README.md"
-Repository = "https://github.com/jeroenflvr/object-storage-proxy/tree/main"
-BugTracker = "https://github.com/jeroenflvr/object-storage-proxy/issues"
+Homepage = "https://github.com/opensourceworks-org/object-storage-proxy"
+Documentation = "https://github.com/opensourceworks-org/object-storage-proxy/blob/main/README.md"
+Repository = "https://github.com/opensourceworks-org/object-storage-proxy/tree/main"
+BugTracker = "https://github.com/opensourceworks-org/object-storage-proxy/issues"
