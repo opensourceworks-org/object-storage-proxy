@@ -1,10 +1,24 @@
-from object_storage_proxy import start_server, ProxyServerConfig
-from dotenv import load_dotenv
 import os
 import random
+import object_storage_proxy as osp
+
+from dotenv import load_dotenv
+
+from object_storage_proxy import start_server, ProxyServerConfig
 
 
-load_dotenv()
+_TRUES  = {"y", "yes", "t", "true", "on", "1"}
+_FALSES = {"n", "no", "f", "false", "off", "0"}
+
+
+def strtobool(val: str) -> bool:
+    """Convert a string to True/False, raise ValueError otherwise."""
+    v = val.lower()
+    if v in _TRUES:
+        return True
+    if v in _FALSES:
+        return False
+    raise ValueError(f"invalid truth value {val!r}")
 
 
 def docreds(bucket) -> str:
@@ -17,11 +31,20 @@ def docreds(bucket) -> str:
 
 def do_validation(token: str, bucket: str) -> bool:
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
-    # return random.choice([True, False])  # pointless now since cached
+    # return random.choice([True, False])
     return True
 
 
 def main() -> None:
+    load_dotenv()
+
+    counting = strtobool(os.getenv("OSP_ENABLE_REQUEST_COUNTING", "false"))
+
+    if counting:
+        osp.enable_request_counting()
+        print("Request counting enabled")
+
+
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")

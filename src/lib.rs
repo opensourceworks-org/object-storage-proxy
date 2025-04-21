@@ -1,4 +1,8 @@
 #![warn(clippy::all)]
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+};
 use async_trait::async_trait;
 use dotenv::dotenv;
 use http::Uri;
@@ -13,7 +17,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::Mutex;
+
+
+use tokio::sync::RwLock;
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
@@ -29,7 +35,9 @@ use credentials::secrets_proxy::{SecretsCache, get_api_key_for_bucket, get_beare
 pub mod utils;
 use utils::validator::{AuthCache, validate_request};
 
-static REQ_COUNTER: Mutex<usize> = Mutex::new(0);
+static REQ_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
+
 
 #[pyclass]
 #[pyo3(name = "ProxyServerConfig")]
@@ -94,7 +102,7 @@ impl ProxyServerConfig {
 
 pub struct MyProxy {
     cos_endpoint: String,
-    cos_mapping: HashMap<String, CosMapItem>,
+    cos_mapping: Arc<RwLock<HashMap<String, CosMapItem>>>,
     secrets_cache: SecretsCache,
     auth_cache: AuthCache,
     validator: Option<PyObject>,
@@ -102,7 +110,7 @@ pub struct MyProxy {
 }
 
 pub struct MyCtx {
-    cos_mapping: HashMap<String, CosMapItem>,
+    cos_mapping: Arc<RwLock<HashMap<String, CosMapItem>>>,
     secrets_cache: SecretsCache,
     auth_cache: AuthCache,
     validator: Option<PyObject>,
@@ -114,7 +122,7 @@ impl ProxyHttp for MyProxy {
     type CTX = MyCtx;
     fn new_ctx(&self) -> Self::CTX {
         MyCtx {
-            cos_mapping: self.cos_mapping.clone(),
+            cos_mapping: Arc::clone(&self.cos_mapping), 
             secrets_cache: self.secrets_cache.clone(),
             auth_cache: self.auth_cache.clone(),
             validator: self
@@ -149,11 +157,10 @@ impl ProxyHttp for MyProxy {
             .map(ToString::to_string)
             .unwrap_or_default();
 
-        let ttl = ctx
-            .cos_mapping
-            .get(bucket)
-            .and_then(|config| config.ttl)
-            .unwrap_or(0);
+        let ttl = {
+            let map = ctx.cos_mapping.read().await;
+            map.get(bucket).and_then(|c| c.ttl).unwrap_or(0)
+        };
 
         let is_authorized = if let Some(py_cb) = &ctx.validator {
             let token = parse_token_from_header(&auth_header)
@@ -168,7 +175,7 @@ impl ProxyHttp for MyProxy {
             ctx.auth_cache
                 .get_or_validate(
                     &cache_key,
-                    Duration::from_secs(ttl), // keep this short enough , TODO: pass from python
+                    Duration::from_secs(ttl),
                     move || {
                         let tk = token.clone();
                         let bu = bucket_clone.clone();
@@ -191,9 +198,12 @@ impl ProxyHttp for MyProxy {
             return Ok(true);
         }
 
-        let bucket_config = ctx.cos_mapping.get(&hdr_bucket);
+        let bucket_config = {
+            let map = ctx.cos_mapping.read().await;
+            map.get(&hdr_bucket).cloned()
+        };
 
-        let api_key = bucket_config.and_then(|config| config.api_key.clone());
+        let api_key = bucket_config.clone().and_then(|config| config.api_key.clone());
         let _api_key = if let Some(key) = api_key {
             info!("Using API key from config for bucket: {}", hdr_bucket);
             key
@@ -202,8 +212,23 @@ impl ProxyHttp for MyProxy {
                 "No key provided in config. Fetching API key for bucket: {}",
                 hdr_bucket
             );
+            
             match get_api_key_for_bucket(py_cb, hdr_bucket.clone()).await {
-                Ok(k) => k,
+                Ok(k) => {
+                    info!("Fetched API key for bucket and storing in config: {}", &hdr_bucket);
+                    // insert the key into the config, there is no need to check if config exists,
+                    // we wouldn't have gotten this far without it.
+                    ctx.cos_mapping.write().await.insert(
+                        hdr_bucket.clone(),
+                        CosMapItem {
+                            host: bucket_config.clone().unwrap().host.clone(),
+                            port: bucket_config.clone().unwrap().port,
+                            api_key: Some(k.clone()),
+                            ttl: bucket_config.clone().unwrap().ttl,
+                        },
+                    );
+                    k
+                },
                 Err(err) => {
                     error!(
                         "Error fetching API key for bucket {}: {:?}",
@@ -227,9 +252,11 @@ impl ProxyHttp for MyProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        let mut req_counter = REQ_COUNTER.lock().unwrap();
-        *req_counter += 1;
-        info!("Request count: {}", *req_counter);
+
+        if REQ_COUNTER_ENABLED.load(Ordering::Relaxed) {
+            let new_val = REQ_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+            info!("Request count: {}", new_val);
+        }
 
         let path = session.req_header().uri.path();
 
@@ -243,8 +270,11 @@ impl ProxyHttp for MyProxy {
 
         let hdr_bucket = bucket.to_owned();
 
-        let bucket_config = ctx.cos_mapping.get(&hdr_bucket);
-        let endpoint = match bucket_config {
+        let bucket_config = {
+            let map = ctx.cos_mapping.read().await;
+            map.get(&hdr_bucket).cloned()
+        };
+        let endpoint = match bucket_config.clone() {
             Some(config) => {
                 config.host.to_owned()
             }
@@ -279,9 +309,14 @@ impl ProxyHttp for MyProxy {
             _ => String::new(),
         };
 
-        let bucket_config = ctx.cos_mapping.get(&hdr_bucket);
+        // let long_lived_cos_mapping = ctx.cos_mapping.read().unwrap();
+        // let bucket_config = long_lived_cos_mapping.get(&hdr_bucket);
+        let bucket_config = {
+            let map = ctx.cos_mapping.read().await;
+            map.get(&hdr_bucket).cloned()
+        };
 
-        let endpoint = match bucket_config {
+        let endpoint = match bucket_config.clone() {
             Some(config) => {
                 format!("{}.{}:{}", bucket, config.host, config.port)
             }
@@ -291,7 +326,7 @@ impl ProxyHttp for MyProxy {
         };
 
         // todo: we already know we have an api key here (request_filter), we just need to use it
-        let api_key = bucket_config.and_then(|config| config.api_key.clone());
+        let api_key = bucket_config.clone().and_then(|config| config.api_key.clone());
         let api_key = if let Some(key) = api_key {
             info!("Using API key from config for bucket: {}", hdr_bucket);
             key
@@ -364,7 +399,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         run_args.http_port, run_args.https_port
     );
 
-    let cosmap = parse_cos_map(py, &run_args.cos_map).unwrap();
+    let cosmap = Arc::new(RwLock::new(parse_cos_map(py, &run_args.cos_map).unwrap()));
 
     let mut my_server = Server::new(None).unwrap();
     my_server.bootstrap();
@@ -375,7 +410,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         &my_server.configuration,
         MyProxy {
             cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(),  // a default COS endpoint, as good as any
-            cos_mapping: cosmap,
+            cos_mapping: Arc::clone(&cosmap),
             secrets_cache: SecretsCache::new(),
             auth_cache: AuthCache::new(),
             validator,
@@ -385,6 +420,11 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
                 .map(|v| v.clone_ref(py)),
         },
     );
+
+    dbg!(my_proxy.threads);
+
+    my_proxy.threads = Some(10);
+    dbg!(my_proxy.threads);
 
     let addr = format!("0.0.0.0:{}", run_args.http_port);
     my_proxy.add_tcp(addr.as_str());
@@ -402,6 +442,11 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     my_proxy
         .add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
     my_server.add_service(my_proxy);
+    
+    dbg!(&my_server.configuration.threads);
+    dbg!(&my_server.configuration);
+
+  
 
     py.allow_threads(|| my_server.run_forever());
 
@@ -421,10 +466,28 @@ pub fn start_server(py: Python, run_args: &ProxyServerConfig) -> PyResult<()> {
     Ok(())
 }
 
+#[pyfunction]
+fn enable_request_counting() {
+    REQ_COUNTER_ENABLED.store(true, Ordering::Relaxed);
+}
+
+#[pyfunction]
+fn disable_request_counting() {
+    REQ_COUNTER_ENABLED.store(false, Ordering::Relaxed);
+}
+
+#[pyfunction]
+fn get_request_count() -> PyResult<usize> {
+    Ok(REQ_COUNTER.load(Ordering::Relaxed))
+}
+
 #[pymodule]
 fn object_storage_proxy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(start_server, m)?)?;
     m.add_class::<ProxyServerConfig>()?;
     m.add_class::<CosMapItem>()?;
+    m.add_function(wrap_pyfunction!(enable_request_counting, m)?)?;
+    m.add_function(wrap_pyfunction!(disable_request_counting, m)?)?;
+    m.add_function(wrap_pyfunction!(get_request_count, m)?)?;
     Ok(())
 }
