@@ -15,6 +15,7 @@ use pingora::upstreams::peer::HttpPeer;
 use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
+// use rustls::crypto::aws_lc_rs::sign;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -23,7 +24,7 @@ use tokio::sync::RwLock;
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 pub mod parsers;
 use parsers::path::parse_path;
@@ -38,7 +39,35 @@ use utils::validator::{AuthCache, validate_request};
 static REQ_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
 
-
+/// Configuration object for :pyfunc:`object_storage_proxy.start_server`.
+///
+/// Parameters
+/// ----------
+/// cos_map:
+///    A dictionary mapping bucket names to their respective COS configuration.
+///   Each entry should contain the following
+///   keys:
+///   - host: The COS endpoint (e.g., "s3.eu-de.cloud-object-storage.appdomain.cloud")
+///   - port: The port number (e.g., 443)
+///   - api_key/apikey: The API key for the bucket (optional)
+///   - ttl/time-to-live: The time-to-live for the API key in seconds (optional)
+/// 
+/// bucket_creds_fetcher:
+///     Optional Python async callable that fetches the API key for a bucket.
+///     The callable should accept a single argument, the bucket name.
+///     It should return a string containing the API key.
+/// http_port:
+///     The HTTP port to listen on.
+/// https_port:
+///     The HTTPS port to listen on.
+/// validator:
+///     Optional Python async callable that validates the request.
+///     The callable should accept two arguments, the token and the bucket name.
+///     It should return a boolean indicating whether the request is valid.
+/// threads:
+///     Optional number of threads to use for the server.
+///     If not specified, the server will use a single thread.
+///
 #[pyclass]
 #[pyo3(name = "ProxyServerConfig")]
 #[derive(Debug)]
@@ -57,6 +86,9 @@ pub struct ProxyServerConfig {
 
     #[pyo3(get, set)]
     pub validator: Option<Py<PyAny>>,
+
+    #[pyo3(get, set)]
+    pub threads: Option<usize>,
 }
 
 impl Default for ProxyServerConfig {
@@ -67,6 +99,7 @@ impl Default for ProxyServerConfig {
             http_port: 6190,
             https_port: 443,
             validator: None,
+            threads: Some(1),
         }
     }
 }
@@ -80,7 +113,8 @@ impl ProxyServerConfig {
             bucket_creds_fetcher = None,
             http_port = 6190,
             https_port = 443,
-            validator = None
+            validator = None,
+            threads = Some(1),
         )
     )]
     pub fn new(
@@ -89,6 +123,7 @@ impl ProxyServerConfig {
         http_port: u16,
         https_port: u16,
         validator: Option<PyObject>,
+        threads: Option<usize>,
     ) -> Self {
         ProxyServerConfig {
             cos_map,
@@ -96,7 +131,15 @@ impl ProxyServerConfig {
             http_port,
             https_port,
             validator,
+            threads,
         }
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!(
+            "ProxyServerConfig(http_port={}, https_port={}, threads={:?})",
+            self.http_port, self.https_port, self.threads
+        ))
     }
 }
 
@@ -421,10 +464,12 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         },
     );
 
-    dbg!(my_proxy.threads);
 
-    my_proxy.threads = Some(10);
-    dbg!(my_proxy.threads);
+    if run_args.threads.is_some() {
+        my_proxy.threads = run_args.threads;
+    } 
+
+    debug!("Proxy service threads: {:?}", &my_proxy.threads);
 
     let addr = format!("0.0.0.0:{}", run_args.http_port);
     my_proxy.add_tcp(addr.as_str());
@@ -443,16 +488,39 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         .add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
     my_server.add_service(my_proxy);
     
-    dbg!(&my_server.configuration.threads);
-    dbg!(&my_server.configuration);
-
-  
-
+    debug!("{:?}", &my_server.configuration);
+    
     py.allow_threads(|| my_server.run_forever());
 
     info!("server running ...");
 }
 
+/// Start an HTTP + HTTPS reverse‑proxy for IBM COS.
+///
+/// Equivalent to running ``pingora`` with a custom handler.
+///
+/// Parameters
+/// ----------
+/// run_args:
+///    A :py:class:`ProxyServerConfig` object containing the configuration for the server.
+///     The configuration includes the following parameters:
+///   - cos_map: A dictionary mapping bucket names to their respective COS configuration.
+///     Each entry should contain the following
+///     keys:
+///        - host: The COS endpoint (e.g., "s3.eu-de.cloud-object-storage.appdomain.cloud")
+///        - port: The port number (e.g., 443)
+///        - api_key/apikey: The API key for the bucket (optional)
+///        - ttl/time-to-live: The time-to-live for the API key in seconds (optional)
+///   - bucket_creds_fetcher: Optional Python async callable that fetches the API key for a bucket.
+///     The callable should accept a single argument, the bucket name.
+///     It should return a string containing the API key.
+///   - http_port: The HTTP port to listen on.
+///   - https_port: The HTTPS port to listen on.
+///   - validator: Optional Python async callable that validates the request.
+///     The callable should accept two arguments, the token and the bucket name.
+///     It should return a boolean indicating whether the request is valid.
+///   - threads: Optional number of threads to use for the server.
+///     If not specified, the server will use a single thread.
 #[pyfunction]
 pub fn start_server(py: Python, run_args: &ProxyServerConfig) -> PyResult<()> {
     rustls::crypto::ring::default_provider()

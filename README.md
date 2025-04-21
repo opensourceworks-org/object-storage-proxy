@@ -14,7 +14,7 @@ A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://gi
 - [x] Takes a Python authorization and api_key fetch callback function and cos bucket dictionary.
 - [x] The validation is cached with optional ttl.
 - [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration.
-- [x] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket.
+- [x] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket (run once).
 - [ ] HMAC support: passing in access and secret id keys, will be used to sign the request
 
 The bucket dict contains for each bucket:
@@ -262,4 +262,4 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [x] https frontend (supports HTTP/2)
 - [x] configurable request counting
 - [x] call the api key fetcher callback only once, save to cos map
-- [ ] interface to pingora server/service configuration (ie. #threads)
+- [x] config for #threads in ProxyServerConfig

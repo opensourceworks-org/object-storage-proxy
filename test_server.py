@@ -73,7 +73,8 @@ def main() -> None:
         bucket_creds_fetcher=docreds,
         validator=do_validation,
         http_port=6190,
-        https_port=8443
+        https_port=8443,
+        threads=4,
     )
 
     start_server(ra)
