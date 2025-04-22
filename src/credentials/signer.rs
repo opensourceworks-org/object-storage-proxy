@@ -71,7 +71,6 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         service: &'a str,
         body: &'a B,
     ) -> Self {
-        dbg!(&url);
         let url: Url = url.parse().unwrap();
         let headers: HashMap<String, String> = headers
             .iter()

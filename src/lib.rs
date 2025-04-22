@@ -81,10 +81,10 @@ pub struct ProxyServerConfig {
     pub cos_map: PyObject,
 
     #[pyo3(get, set)]
-    pub http_port: u16,
+    pub http_port: Option<u16>,
 
     #[pyo3(get, set)]
-    pub https_port: u16,
+    pub https_port: Option<u16>,
 
     #[pyo3(get, set)]
     pub validator: Option<Py<PyAny>>,
@@ -98,8 +98,8 @@ impl Default for ProxyServerConfig {
         ProxyServerConfig {
             cos_map: Python::with_gil(|py| py.None()),
             bucket_creds_fetcher: None,
-            http_port: 6190,
-            https_port: 443,
+            http_port: None,
+            https_port: None,
             validator: None,
             threads: Some(1),
         }
@@ -113,8 +113,8 @@ impl ProxyServerConfig {
         signature = (
             cos_map,
             bucket_creds_fetcher = None,
-            http_port = 6190,
-            https_port = 443,
+            http_port = None,
+            https_port = None,
             validator = None,
             threads = Some(1),
         )
@@ -122,8 +122,8 @@ impl ProxyServerConfig {
     pub fn new(
         cos_map: PyObject,
         bucket_creds_fetcher: Option<PyObject>,
-        http_port: u16,
-        https_port: u16,
+        http_port: Option<u16>,
+        https_port: Option<u16>,
         validator: Option<PyObject>,
         threads: Option<usize>,
     ) -> Self {
@@ -140,7 +140,7 @@ impl ProxyServerConfig {
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "ProxyServerConfig(http_port={}, https_port={}, threads={:?})",
-            self.http_port, self.https_port, self.threads
+            self.http_port.unwrap_or(0), self.https_port.unwrap_or(0), self.threads
         ))
     }
 }
@@ -190,7 +190,7 @@ impl ProxyHttp for MyProxy {
             return Err(pingora::Error::new_str("Failed to parse path"));
         }
 
-        let (_, (bucket, _)) = parse_path(path).unwrap();
+        let (_, (bucket, uri_path)) = parse_path(path).unwrap();
 
         let hdr_bucket = bucket.to_owned();
 
@@ -435,10 +435,19 @@ pub fn init_tracing() {
 
 pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     init_tracing();
-    info!(
-        "Logger initialized; starting server on http port {} and https port {}",
-        run_args.http_port, run_args.https_port
-    );
+
+    if run_args.http_port.is_none() && run_args.https_port.is_none() {
+        error!("At least one of http_port or https_port must be specified!");
+        return;
+    }
+
+    if let Some(http_port) = run_args.http_port {
+        info!("starting HTTP server on port {}", http_port);
+    }
+
+    if let Some(https_port) = run_args.https_port {
+        info!("starting HTTPS server on port {}", https_port);
+    }
 
     let cosmap = Arc::new(RwLock::new(parse_cos_map(py, &run_args.cos_map).unwrap()));
 
@@ -468,20 +477,26 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
 
     debug!("Proxy service threads: {:?}", &my_proxy.threads);
 
-    let addr = format!("0.0.0.0:{}", run_args.http_port);
-    my_proxy.add_tcp(addr.as_str());
+    if let Some(http_port) = run_args.http_port {
+        info!("starting HTTP server on port {}", &http_port);
+        let addr = format!("0.0.0.0:{}", http_port);
+        my_proxy.add_tcp(addr.as_str());
+    }
 
-    let cert_path =
-        std::env::var("TLS_CERT_PATH").expect("Set TLS_CERT_PATH to the PEM certificate file");
-    let key_path =
-        std::env::var("TLS_KEY_PATH").expect("Set TLS_KEY_PATH to the PEM private‑key file");
+    if let Some(https_port) = run_args.https_port {
+        let cert_path =
+            std::env::var("TLS_CERT_PATH").expect("Set TLS_CERT_PATH to the PEM certificate file");
+        let key_path =
+            std::env::var("TLS_KEY_PATH").expect("Set TLS_KEY_PATH to the PEM private-key file");
 
-    let mut tls = pingora::listeners::tls::TlsSettings::intermediate(&cert_path, &key_path)
-        .expect("failed to build TLS settings");
+        let mut tls = pingora::listeners::tls::TlsSettings::intermediate(&cert_path, &key_path)
+            .expect("failed to build TLS settings");
 
-    tls.enable_h2();
-    let https_addr = format!("0.0.0.0:{}", run_args.https_port);
-    my_proxy.add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
+        tls.enable_h2();
+        let https_addr = format!("0.0.0.0:{}", https_port);
+        my_proxy.add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
+    }
+    
     my_server.add_service(my_proxy);
 
     debug!("{:?}", &my_server.configuration);

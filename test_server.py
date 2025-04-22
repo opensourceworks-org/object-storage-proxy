@@ -87,6 +87,22 @@ def main() -> None:
             # "secret_key": os.getenv("SECRET_KEY"),
             "port": 443,
             "ttl": 300
+        },
+        "proxy-bucket05": {
+            "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
+            "access_key": os.getenv("PROXY_BUCKET05_ACCESS_KEY"),
+            "secret_key": os.getenv("PROXY_BUCKET05_SECRET_KEY"),
+            "port": 443,
+            "ttl": 300
+        },
+        "proxy-aws-bucket01": {
+            "host": "s3.eu-west-3.amazonaws.com",
+            "region": "eu-west-3",
+            "access_key": os.getenv("AWS_ACCESS_KEY"),
+            "secret_key": os.getenv("AWS_SECRET_KEY"),
+            "port": 443,
+            "ttl": 300
         }
     }
 
@@ -94,7 +110,7 @@ def main() -> None:
         cos_map=cos_map,
         bucket_creds_fetcher=do_hmac_creds,
         validator=do_validation,
-        http_port=6190,
+        # http_port=6190,
         https_port=8443,
         threads=1,
     )

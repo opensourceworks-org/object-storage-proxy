@@ -9,7 +9,7 @@
 
 ## Introduction
 
-A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets.
+A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets and integrate your Authentication and Authorization services.
 
 - [x] Takes a Python authorization (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
 - [x] The validation is cached with optional ttl (default 5min, keep it short). 
@@ -44,7 +44,15 @@ cos_map = {
         "access_key": "<redacted>",
         "secret_key": "<redacted>",
         "ttl": 300
-    }
+    },
+    "proxy-aws-bucket01": {
+        "host": "s3.eu-west-3.amazonaws.com",
+        "region": "eu-west-3",
+        "access_key": os.getenv("AWS_ACCESS_KEY"),
+        "secret_key": os.getenv("AWS_SECRET_KEY"),
+        "port": 443,
+        "ttl": 300
+    }    
 }
 ```
 
@@ -55,7 +63,7 @@ The Python callables take two arguments:
 
 ```python
     def your_credentials_fetcher(token: str, bucket: str) -> str
-    def your_authorizer(token:str, bucket: str) -> bool
+    def your_request_authorizer(token: str, bucket: str) -> bool
 ```
 
 
@@ -288,8 +296,6 @@ export TLS_CERT_PATH=/full/path/cert.pem
 export TLS_KEY_PATH=/full/path/key.pem
 ```
 
-
-
 # Status
 
 - [x] pingora proxy implementation
@@ -299,8 +305,9 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [x] <del>split in workspace crate with core, cli and python crates</del> (too many specifics for python)
 - [x] config mgmt
 - [x] cache authorization (with optional ttl)
-- [x] http frontend
-- [x] https frontend (supports HTTP/2)
+- [x] http frontend (optional)
+- [x] https frontend (supports HTTP/2) (optional)
 - [x] configurable request counting
 - [x] call the api key fetcher callback only once, save to cos map
 - [x] config for #threads in ProxyServerConfig
+- [ ] also pass path and method to python callbacks and cache by token/bucket/path/method 
