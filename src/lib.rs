@@ -190,7 +190,7 @@ impl ProxyHttp for MyProxy {
             return Err(pingora::Error::new_str("Failed to parse path"));
         }
 
-        let (_, (bucket, uri_path)) = parse_path(path).unwrap();
+        let (_, (bucket, _uri_path)) = parse_path(path).unwrap();
 
         let hdr_bucket = bucket.to_owned();
 

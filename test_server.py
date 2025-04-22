@@ -110,8 +110,8 @@ def main() -> None:
         cos_map=cos_map,
         bucket_creds_fetcher=do_hmac_creds,
         validator=do_validation,
-        # http_port=6190,
-        https_port=8443,
+        http_port=6190,
+        # https_port=8443,
         threads=1,
     )
 
