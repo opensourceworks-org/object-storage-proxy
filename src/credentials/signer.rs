@@ -11,7 +11,7 @@ use crate::parsers::cos_map::CosMapItem;
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
-// AwsSign copied from https://github.com/psnszsn/aws-sign-v4
+// AwsSign copied and slightly modified from https://github.com/psnszsn/aws-sign-v4
 
 pub struct AwsSign<'a, T: 'a>
 where
@@ -394,11 +394,8 @@ mod tests {
         );
     }
 
-    // Helper to build a minimal CosMapItem with just region, access_key, secret_key set.
     fn make_cos_map_item() -> CosMapItem {
         CosMapItem {
-            // other fields (host, port, api_key, ttl...) can be left at their defaults;
-            // here we assume CosMapItem: Default is implemented
             region: Some("us-east-1".into()),
             access_key: Some("AKIDEXAMPLE".into()),
             secret_key: Some("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into()),
