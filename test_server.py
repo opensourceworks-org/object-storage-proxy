@@ -113,6 +113,7 @@ def main() -> None:
         http_port=6190,
         # https_port=8443,
         threads=1,
+        verify=False,
     )
 
     start_server(ra)

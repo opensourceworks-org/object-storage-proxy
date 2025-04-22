@@ -91,6 +91,9 @@ pub struct ProxyServerConfig {
 
     #[pyo3(get, set)]
     pub threads: Option<usize>,
+
+    #[pyo3(get, set)]
+    pub verify: Option<bool>,
 }
 
 impl Default for ProxyServerConfig {
@@ -102,6 +105,7 @@ impl Default for ProxyServerConfig {
             https_port: None,
             validator: None,
             threads: Some(1),
+            verify: None,
         }
     }
 }
@@ -117,6 +121,7 @@ impl ProxyServerConfig {
             https_port = None,
             validator = None,
             threads = Some(1),
+            verify = None,
         )
     )]
     pub fn new(
@@ -126,6 +131,7 @@ impl ProxyServerConfig {
         https_port: Option<u16>,
         validator: Option<PyObject>,
         threads: Option<usize>,
+        verify: Option<bool>,
     ) -> Self {
         ProxyServerConfig {
             cos_map,
@@ -134,6 +140,7 @@ impl ProxyServerConfig {
             https_port,
             validator,
             threads,
+            verify,
         }
     }
 
@@ -152,6 +159,7 @@ pub struct MyProxy {
     auth_cache: AuthCache,
     validator: Option<PyObject>,
     bucket_creds_fetcher: Option<PyObject>,
+    verify: Option<bool>,
 }
 
 pub struct MyCtx {
@@ -182,6 +190,7 @@ impl ProxyHttp for MyProxy {
     }
 
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
+        debug!("request_filter::start");
         let path = session.req_header().uri.path();
 
         let parse_path_result = parse_path(path);
@@ -284,7 +293,8 @@ impl ProxyHttp for MyProxy {
                 ));
             }
         }
-
+        info!("request_filter::Credentials checked for bucket: {}. End of function.", hdr_bucket);
+        debug!("request_filter::end");
         Ok(false)
     }
 
@@ -293,6 +303,7 @@ impl ProxyHttp for MyProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
+        debug!("upstream_peer::start");
         if REQ_COUNTER_ENABLED.load(Ordering::Relaxed) {
             let new_val = REQ_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
             info!("Request count: {}", new_val);
@@ -315,7 +326,7 @@ impl ProxyHttp for MyProxy {
             map.get(&hdr_bucket).cloned()
         };
         let endpoint = match bucket_config.clone() {
-            Some(config) => config.host.to_owned(),
+            Some(config) => format!("{}.{}", bucket, config.host.to_owned()),
             None => {
                 format!("{}.{}", bucket, self.cos_endpoint)
             }
@@ -328,7 +339,21 @@ impl ProxyHttp for MyProxy {
         let addr = (endpoint.clone(), port);
 
         let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
-        peer.options.verify_cert = false;
+
+        debug!("peer: {:#?}", &peer);
+
+        // todo: make this configurable, with warning for production
+        if let Some(verify) = self.verify {
+            info!("Verify peer (upstream) certificates disabled!");
+            peer.options.verify_cert = verify;
+            peer.options.verify_hostname = verify;
+        } else {
+            peer.options.verify_cert = true;
+        }
+        
+        debug!("peer: {:#?}", &peer);
+
+        debug!("upstream_peer::end");
         Ok(peer)
     }
 
@@ -338,6 +363,7 @@ impl ProxyHttp for MyProxy {
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
+        debug!("upstream_request_filter::start");
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
 
         let hdr_bucket = bucket.to_string();
@@ -362,6 +388,8 @@ impl ProxyHttp for MyProxy {
             }
             None => format!("{}.{}", bucket, self.cos_endpoint),
         };
+
+        debug!("endpoint: {}.", &endpoint);
 
         // Box:leak the temporary string to get a static reference which will outlive the function
         let authority = Authority::from_static(Box::leak(endpoint.clone().into_boxed_str()));
@@ -421,6 +449,7 @@ impl ProxyHttp for MyProxy {
         info!("Sending request to upstream: {}", &new_uri);
 
         info!("Request sent to upstream.");
+        debug!("upstream_request_filter::end");
 
         Ok(())
     }
@@ -468,6 +497,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
                 .bucket_creds_fetcher
                 .as_ref()
                 .map(|v| v.clone_ref(py)),
+            verify: run_args.verify,
         },
     );
 

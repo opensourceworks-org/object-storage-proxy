@@ -311,3 +311,4 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [x] call the api key fetcher callback only once, save to cos map
 - [x] config for #threads in ProxyServerConfig
 - [ ] also pass path and method to python callbacks and cache by token/bucket/path/method 
+- [x] option to disable upstream/peer certificate validation (for development, not production!)
