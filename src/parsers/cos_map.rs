@@ -6,9 +6,8 @@ use pyo3::{PyResult, Python};
 
 use crate::credentials::models::BucketCredential;
 
-
 /// Represents a COS map item with its properties.
-/// 
+///
 /// This struct is used to store the configuration for a COS bucket.
 /// Each bucket is identified by its name, and the properties include:
 /// - `host`: The host address of the COS service.
@@ -18,7 +17,7 @@ use crate::credentials::models::BucketCredential;
 /// - `access_key`: The access key for the COS service (optional).
 /// - `secret_key`: The secret key for the COS service (optional).
 /// - `ttl`: The time-to-live for the COS bucket (optional).
-/// 
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct CosMapItem {
@@ -56,7 +55,8 @@ impl CosMapItem {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
     where
         F: FnOnce(String) -> Fut + Send,
-        Fut: std::future::Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send,
+        Fut: std::future::Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>>
+            + Send,
     {
         if self.has_hmac() || self.has_api_key() {
             return Ok(());
@@ -68,7 +68,10 @@ impl CosMapItem {
 
         let raw_creds = fetch(bucket.to_owned()).await?;
         match BucketCredential::parse(&raw_creds) {
-            BucketCredential::Hmac { access_key, secret_key } => {
+            BucketCredential::Hmac {
+                access_key,
+                secret_key,
+            } => {
                 self.access_key = Some(access_key);
                 self.secret_key = Some(secret_key);
             }
@@ -79,7 +82,6 @@ impl CosMapItem {
         Ok(())
     }
 }
-
 
 pub(crate) fn parse_cos_map(
     py: Python,
@@ -99,10 +101,7 @@ pub(crate) fn parse_cos_map(
             .ok_or_else(|| PyKeyError::new_err("Missing 'port' in COS map entry"))?;
         let port: u16 = port_obj.extract(py)?;
 
-        let region = inner_map
-            .get("region")
-            .map(|v| v.extract(py))
-            .transpose()?;
+        let region = inner_map.get("region").map(|v| v.extract(py)).transpose()?;
 
         // Optional: api_key (allow 'api_key' or 'apikey')
         let api_key =

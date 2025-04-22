@@ -1,4 +1,3 @@
-
 pub enum BucketCredential {
     Hmac {
         access_key: String,
@@ -8,13 +7,9 @@ pub enum BucketCredential {
 }
 
 impl BucketCredential {
-
     pub fn parse(raw: &str) -> Self {
         if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(raw) {
-            if let (Some(ak), Some(sk)) = (
-                json_val.get("access_key"),
-                json_val.get("secret_key"),
-            ) {
+            if let (Some(ak), Some(sk)) = (json_val.get("access_key"), json_val.get("secret_key")) {
                 return BucketCredential::Hmac {
                     access_key: ak.as_str().unwrap().to_owned(),
                     secret_key: sk.as_str().unwrap().to_owned(),

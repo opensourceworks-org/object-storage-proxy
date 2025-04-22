@@ -157,7 +157,6 @@ pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn s
     }
 }
 
-
 pub(crate) async fn get_credential_for_bucket(
     callback: &PyObject,
     bucket: String,

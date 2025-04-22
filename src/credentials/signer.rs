@@ -1,22 +1,21 @@
 use chrono::{DateTime, Utc};
 use http::header::HeaderMap;
 use pingora::http::RequestHeader;
-use url::Url;
-use std::collections::HashMap;
 use sha256::digest;
+use tracing::debug;
+use std::{collections::HashMap, fmt};
+use url::Url;
 
 use crate::parsers::cos_map::CosMapItem;
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
-
 // AwsSign copied from https://github.com/psnszsn/aws-sign-v4
 
-#[derive(Debug)]
 pub struct AwsSign<'a, T: 'a>
 where
-    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>,
+    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
 {
     method: &'a str,
     url: Url,
@@ -26,9 +25,9 @@ where
     secret_key: &'a str,
     headers: T,
 
-    /* 
+    /*
     service is the <aws-service-code> that can be found in the service-quotas api.
-    
+
     For example, use the value `ServiceCode` for this `service` property.
     Thus, for "Amazon Simple Storage Service (Amazon S3)", you would use value "s3"
 
@@ -72,6 +71,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         service: &'a str,
         body: &'a B,
     ) -> Self {
+        dbg!(&url);
         let url: Url = url.parse().unwrap();
         let headers: HashMap<String, String> = headers
             .iter()
@@ -97,9 +97,29 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
     }
 }
 
+/// custom debug implementation to redact secret_key
+impl<'a, T> fmt::Debug for AwsSign<'a, T>
+where
+    &'a T: IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AwsSign")
+            .field("method", &self.method)
+            .field("url", &self.url)
+            .field("datetime", &self.datetime)
+            .field("region", &self.region)
+            .field("access_key", &self.access_key)
+            .field("secret_key", &"<REDACTED>")
+            .field("service", &self.service)
+            .field("body", &self.body)
+            .field("headers", &self.headers)
+            .finish()
+    }
+}
+
 impl<'a, T> AwsSign<'a, T>
 where
-    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>,
+    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
 {
     pub fn canonical_header_string(&'a self) -> String {
         let mut keyvalues = self
@@ -167,7 +187,7 @@ pub fn uri_encode(string: &str, encode_slash: bool) -> String {
             '/' if encode_slash => result.push_str("%2F"),
             '/' if !encode_slash => result.push('/'),
             _ => {
-                                result.push_str(
+                result.push_str(
                     &format!("{}", c)
                         .bytes()
                         .map(|b| format!("%{:02X}", b))
@@ -197,7 +217,12 @@ pub fn scope_string(datetime: &DateTime<Utc>, region: &str, service: &str) -> St
     )
 }
 
-pub fn string_to_sign(datetime: &DateTime<Utc>, region: &str, canonical_req: &str, service: &str) -> String {
+pub fn string_to_sign(
+    datetime: &DateTime<Utc>,
+    region: &str,
+    canonical_req: &str,
+    service: &str,
+) -> String {
     let hash = ring::digest::digest(&ring::digest::SHA256, canonical_req.as_bytes());
     format!(
         "AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{hash}",
@@ -232,8 +257,10 @@ pub fn signing_key(
     Ok(signing_tag.as_ref().to_vec())
 }
 
-
-pub(crate) async fn sign_request(request: &mut RequestHeader, cos_map: &CosMapItem) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) async fn sign_request(
+    request: &mut RequestHeader,
+    cos_map: &CosMapItem,
+) -> Result<(), Box<dyn std::error::Error>> {
     // if no region, access_key or secret_key, return error
     if cos_map.region.is_none() || cos_map.access_key.is_none() || cos_map.secret_key.is_none() {
         return Err("Missing region, access_key or secret_key".into());
@@ -256,14 +283,24 @@ pub(crate) async fn sign_request(request: &mut RequestHeader, cos_map: &CosMapIt
             .parse::<http::header::HeaderValue>()
             .unwrap(),
     )?;
-    let payload_hash = if method == "GET" || method == "HEAD" {
+    let payload_hash = if method == "GET" || method == "HEAD" || method == "DELETE" {
         // spec uses empty‑body hash for reads
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        &sha256::digest(b"")
     } else {
         // for streaming uploads we sign UNSIGNED‑PAYLOAD
         "UNSIGNED-PAYLOAD"
     };
+
     request.insert_header("x-amz-content-sha256", payload_hash)?;
+
+    let body_bytes: &[u8] = match payload_hash {
+        // empty body → empty slice
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" => &[], // sha256 hash of empty string
+        "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
+        // unreachable code
+        _ => &[],
+    };
+
     let auth_header = AwsSign::new(
         &method,
         &url,
@@ -273,10 +310,12 @@ pub(crate) async fn sign_request(request: &mut RequestHeader, cos_map: &CosMapIt
         access_key,
         secret_key,
         "s3",
-        payload_hash
+        body_bytes,
     );
+    debug!("{:#?}", &auth_header);
+
     let signature = auth_header.sign();
-    println!("{:#?}", signature);
+    debug!("{:#?}", signature);
 
     request.insert_header(
         "Authorization",
@@ -284,32 +323,28 @@ pub(crate) async fn sign_request(request: &mut RequestHeader, cos_map: &CosMapIt
     )?;
 
     Ok(())
-
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsers::cos_map::CosMapItem;
+    use http::{HeaderMap, Method};
+    use pingora::http::RequestHeader;
+    use regex::Regex;
+    use sha256::digest;
 
     #[test]
     fn sample_canonical_request() {
         let datetime = chrono::Utc::now();
         let url: &str = "https://hi.s3.us-east-1.amazonaws.com/Prod/graphql";
         let map: HeaderMap = HeaderMap::new();
-        let aws_sign = AwsSign::new(
-            "GET", 
-            url, 
-            &datetime, 
-            &map, 
-            "us-east-1", 
-            "a", 
-            "b", 
-            "s3", 
-            ""
-        );
+        let aws_sign = AwsSign::new("GET", url, &datetime, &map, "us-east-1", "a", "b", "s3", "");
         let s = aws_sign.canonical_request();
-        assert_eq!(s, "GET\n/Prod/graphql\n\n\n\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            s,
+            "GET\n/Prod/graphql\n\n\n\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]
@@ -329,7 +364,10 @@ mod tests {
             "".as_bytes(),
         );
         let s = aws_sign.canonical_request();
-        assert_eq!(s, "GET\n/Prod/graphql\n\n\n\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            s,
+            "GET\n/Prod/graphql\n\n\n\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]
@@ -350,6 +388,117 @@ mod tests {
             &body,
         );
         let s = aws_sign.canonical_request();
-        assert_eq!(s, "GET\n/Prod/graphql\n\n\n\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            s,
+            "GET\n/Prod/graphql\n\n\n\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    // Helper to build a minimal CosMapItem with just region, access_key, secret_key set.
+    fn make_cos_map_item() -> CosMapItem {
+        CosMapItem {
+            // other fields (host, port, api_key, ttl...) can be left at their defaults;
+            // here we assume CosMapItem: Default is implemented
+            region: Some("us-east-1".into()),
+            access_key: Some("AKIDEXAMPLE".into()),
+            secret_key: Some("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into()),
+            host: "bucket.s3.us-east-1.amazonaws.com".into(),
+            port: 443,
+            api_key: None,
+            ttl: None,
+        }
+    }
+
+    /// Any method other than GET/HEAD/DELETE should use UNSIGNED-PAYLOAD
+    #[tokio::test]
+    async fn post_request_uses_unsigned_payload() {
+        // build a POST RequestHeader
+        let mut req = RequestHeader::build(
+            Method::GET,
+            b"https://bucket.s3.us-east-1.amazonaws.com/?list-type=2&prefix=mandelbrot&encoding-type=url",
+            None
+        ).unwrap();
+        req.insert_header("Host", "bucket.s3.us-east-1.amazonaws.com")
+            .unwrap();
+        assert!(req.headers.get("x-amz-content-sha256").is_none());
+
+        // run sign_request
+        let cos = make_cos_map_item();
+        sign_request(&mut req, &cos).await.unwrap();
+
+        // x-amz-content-sha256 must be "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        let payload_header = req
+            .headers
+            .get("x-amz-content-sha256")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(
+            payload_header,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+
+        // Authorization header must include our access key and scope
+        let auth = req.headers.get("authorization").unwrap().to_str().unwrap();
+        assert!(auth.contains("Credential=AKIDEXAMPLE/"));
+        assert!(auth.contains("/us-east-1/s3/aws4_request,"));
+    }
+
+    /// GET/DELETE must use the empty-body hash, and sign correctly
+    #[tokio::test]
+    async fn get_request_sets_empty_body_hash_and_signature_format() {
+        let mut req = RequestHeader::build(
+            Method::GET, b"https://bucket.s3.us-east-1.amazonaws.com/?list-type=2&prefix=mandelbrot&encoding-type=url",
+            None
+        ).unwrap();
+        req.insert_header("Host", "bucket.s3.us-east-1.amazonaws.com")
+            .unwrap();
+        let cos = make_cos_map_item();
+        sign_request(&mut req, &cos).await.unwrap();
+
+        // empty-body sha256
+        let empty_hash = digest(b"");
+        let header_hash = req
+            .headers
+            .get("x-amz-content-sha256")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(header_hash, empty_hash);
+
+        // X-Amz-Date must be a valid timestamp ending in Z
+        let x_amz_date = req.headers.get("x-amz-date").unwrap().to_str().unwrap();
+        let re_date = Regex::new(r"^\d{8}T\d{6}Z$").unwrap();
+        assert!(
+            re_date.is_match(x_amz_date),
+            "x-amz-date wrong format: {}",
+            x_amz_date
+        );
+
+        // Authorization header format
+        let auth = req.headers.get("authorization").unwrap().to_str().unwrap();
+        assert!(auth.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"));
+        // must have SignedHeaders including host;x-amz-content-sha256;x-amz-date
+        assert!(auth.contains("SignedHeaders="));
+        assert!(auth.contains("host;"));
+        assert!(auth.contains("x-amz-content-sha256;"));
+        assert!(auth.contains("x-amz-date"));
+    }
+
+    /// Missing any of region/access_key/secret_key should error out
+    #[tokio::test]
+    async fn error_when_missing_credentials() {
+        let mut req = RequestHeader::build(
+            Method::GET,
+            b"https://bucket.s3.us-east-1.amazonaws.com/?list-type=2&prefix=mandelbrot&encoding-type=url",
+            None
+        ).unwrap();
+        req.insert_header("Host", "bucket.s3.us-east-1.amazonaws.com")
+            .unwrap();
+        let mut cos = make_cos_map_item();
+        cos.region = None; // drop region
+        let err = sign_request(&mut req, &cos).await.unwrap_err();
+        let msg = format!("{}", err);
+        assert!(msg.contains("Missing region, access_key or secret_key"));
     }
 }

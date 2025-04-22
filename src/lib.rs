@@ -1,37 +1,39 @@
 #![warn(clippy::all)]
-use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
-};
 use async_trait::async_trait;
 use dotenv::dotenv;
 use http::Uri;
 use http::uri::Authority;
 use parsers::cos_map::{CosMapItem, parse_cos_map};
-use pingora::proxy::{ProxyHttp, Session};
 use pingora::Result;
+use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
 use pingora::upstreams::peer::HttpPeer;
-use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
+use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 // use rustls::crypto::aws_lc_rs::sign;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-
-use tokio::sync::RwLock;
 use std::time::Duration;
+use tokio::sync::RwLock;
+use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
-use tracing::{debug, error, info};
 
 pub mod parsers;
-use parsers::path::parse_path;
 use parsers::credentials::parse_token_from_header;
+use parsers::path::parse_path;
 
 pub mod credentials;
-use credentials::{secrets_proxy::{get_bearer, get_credential_for_bucket, SecretsCache}, signer::sign_request};
+use credentials::{
+    secrets_proxy::{SecretsCache, get_bearer, get_credential_for_bucket},
+    signer::sign_request,
+};
 
 pub mod utils;
 use utils::validator::{AuthCache, validate_request};
@@ -51,7 +53,7 @@ static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
 ///   - port: The port number (e.g., 443)
 ///   - api_key/apikey: The API key for the bucket (optional)
 ///   - ttl/time-to-live: The time-to-live for the API key in seconds (optional)
-/// 
+///
 /// bucket_creds_fetcher:
 ///     Optional Python async callable that fetches the API key for a bucket.
 ///     The callable should accept a single argument, the bucket name.
@@ -165,7 +167,7 @@ impl ProxyHttp for MyProxy {
     type CTX = MyCtx;
     fn new_ctx(&self) -> Self::CTX {
         MyCtx {
-            cos_mapping: Arc::clone(&self.cos_mapping), 
+            cos_mapping: Arc::clone(&self.cos_mapping),
             secrets_cache: self.secrets_cache.clone(),
             auth_cache: self.auth_cache.clone(),
             validator: self
@@ -216,20 +218,16 @@ impl ProxyHttp for MyProxy {
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
 
             ctx.auth_cache
-                .get_or_validate(
-                    &cache_key,
-                    Duration::from_secs(ttl),
-                    move || {
-                        let tk = token.clone();
-                        let bu = bucket_clone.clone();
-                        let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
-                        async move {
-                            validate_request(&tk, &bu, cb)
-                                .await
-                                .map_err(|_| pingora::Error::new_str("Validator error"))
-                        }
-                    },
-                )
+                .get_or_validate(&cache_key, Duration::from_secs(ttl), move || {
+                    let tk = token.clone();
+                    let bu = bucket_clone.clone();
+                    let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
+                    async move {
+                        validate_request(&tk, &bu, cb)
+                            .await
+                            .map_err(|_| pingora::Error::new_str("Validator error"))
+                    }
+                })
                 .await?
         } else {
             true
@@ -256,7 +254,7 @@ impl ProxyHttp for MyProxy {
                     move |bucket: String| async move {
                         get_credential_for_bucket(&cb, bucket)
                             .await
-                            .map_err(|e| e.into())          // Convert PyErr → Box<dyn Error>
+                            .map_err(|e| e.into()) // Convert PyErr → Box<dyn Error>
                     }
                 });
 
@@ -277,10 +275,11 @@ impl ProxyHttp for MyProxy {
             }
             None => {
                 error!("No configuration available for bucket: {hdr_bucket}");
-                return Err(pingora::Error::new_str("No configuration available for bucket"));
+                return Err(pingora::Error::new_str(
+                    "No configuration available for bucket",
+                ));
             }
         }
-
 
         Ok(false)
     }
@@ -290,7 +289,6 @@ impl ProxyHttp for MyProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-
         if REQ_COUNTER_ENABLED.load(Ordering::Relaxed) {
             let new_val = REQ_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
             info!("Request count: {}", new_val);
@@ -313,9 +311,7 @@ impl ProxyHttp for MyProxy {
             map.get(&hdr_bucket).cloned()
         };
         let endpoint = match bucket_config.clone() {
-            Some(config) => {
-                config.host.to_owned()
-            }
+            Some(config) => config.host.to_owned(),
             None => {
                 format!("{}.{}", bucket, self.cos_endpoint)
             }
@@ -373,10 +369,8 @@ impl ProxyHttp for MyProxy {
             .build()
             .expect("should build a valid URI");
 
-
         upstream_request.set_uri(new_uri.clone());
         upstream_request.insert_header("host", authority.as_str())?;
-
 
         let (maybe_hmac, maybe_api_key) = match &bucket_config {
             Some(cfg) => (cfg.has_hmac(), cfg.api_key.clone()),
@@ -392,7 +386,7 @@ impl ProxyHttp for MyProxy {
                     pingora::Error::new_str("Failed to sign request")
                 })?;
             info!("Request signed for bucket: {}", hdr_bucket);
-            dbg!(&upstream_request.headers);
+            debug!("{:#?}", &upstream_request.headers);
         } else {
             info!("Using API key for bucket: {}", hdr_bucket);
             let api_key = match maybe_api_key {
@@ -417,10 +411,7 @@ impl ProxyHttp for MyProxy {
                 .await
                 .ok_or_else(|| pingora::Error::new_str("Failed to obtain bearer token"))?;
 
-            upstream_request.insert_header(
-                "Authorization",
-                format!("Bearer {bearer_token}"),
-            )?;
+            upstream_request.insert_header("Authorization", format!("Bearer {bearer_token}"))?;
         }
 
         info!("Sending request to upstream: {}", &new_uri);
@@ -455,7 +446,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,
         MyProxy {
-            cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(),  // a default COS endpoint, as good as any
+            cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(), // a default COS endpoint, as good as any
             cos_mapping: Arc::clone(&cosmap),
             secrets_cache: SecretsCache::new(),
             auth_cache: AuthCache::new(),
@@ -467,32 +458,30 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         },
     );
 
-
     if run_args.threads.is_some() {
         my_proxy.threads = run_args.threads;
-    } 
+    }
 
     debug!("Proxy service threads: {:?}", &my_proxy.threads);
 
     let addr = format!("0.0.0.0:{}", run_args.http_port);
     my_proxy.add_tcp(addr.as_str());
 
-    let cert_path = std::env::var("TLS_CERT_PATH")
-        .expect("Set TLS_CERT_PATH to the PEM certificate file");
-    let key_path  = std::env::var("TLS_KEY_PATH")
-        .expect("Set TLS_KEY_PATH to the PEM private‑key file");
+    let cert_path =
+        std::env::var("TLS_CERT_PATH").expect("Set TLS_CERT_PATH to the PEM certificate file");
+    let key_path =
+        std::env::var("TLS_KEY_PATH").expect("Set TLS_KEY_PATH to the PEM private‑key file");
 
     let mut tls = pingora::listeners::tls::TlsSettings::intermediate(&cert_path, &key_path)
         .expect("failed to build TLS settings");
 
     tls.enable_h2();
     let https_addr = format!("0.0.0.0:{}", run_args.https_port);
-    my_proxy
-        .add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
+    my_proxy.add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
     my_server.add_service(my_proxy);
-    
+
     debug!("{:?}", &my_server.configuration);
-    
+
     py.allow_threads(|| my_server.run_forever());
 
     info!("server running ...");
