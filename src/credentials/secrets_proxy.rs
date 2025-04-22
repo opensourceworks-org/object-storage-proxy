@@ -160,9 +160,10 @@ pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn s
 pub(crate) async fn get_credential_for_bucket(
     callback: &PyObject,
     bucket: String,
+    token: String
 ) -> PyResult<String> {
     Python::with_gil(|py| {
-        let s = callback.call1(py, (bucket,))?;
+        let s = callback.call1(py, (token, bucket,))?;
         s.extract::<String>(py)
     })
 }

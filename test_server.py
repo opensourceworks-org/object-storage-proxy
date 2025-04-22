@@ -22,7 +22,8 @@ def strtobool(val: str) -> bool:
     raise ValueError(f"invalid truth value {val!r}")
 
 
-def do_api_creds(bucket) -> str:
+def do_api_creds(token: str, bucket: str) -> str:
+    """Fetch credentials (ro, rw, access_denied) for the given bucket, depending on the token. """
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
@@ -31,7 +32,8 @@ def do_api_creds(bucket) -> str:
     return apikey
 
 
-def do_hmac_creds(bucket) -> str:
+def do_hmac_creds(token: str, bucket: str) -> str:
+    """ Fetch HMAC credentials (ro, rw, access_denied) for the given bucket, depending on the token """
     access_key = os.getenv("ACCESS_KEY")
     secret_key = os.getenv("SECRET_KEY")
     if not access_key or not secret_key:
@@ -45,6 +47,7 @@ def do_hmac_creds(bucket) -> str:
 
 
 def do_validation(token: str, bucket: str) -> bool:
+    """ Authorize the request based on token for the given bucket. """
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
     # return random.choice([True, False])
     return True

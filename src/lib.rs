@@ -243,6 +243,10 @@ impl ProxyHttp for MyProxy {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
+        let token = parse_token_from_header(&auth_header)
+            .map_err(|_| pingora::Error::new_str("Failed to parse token"))?
+            .1
+            .to_string();
 
         // we have to check for some available credentials here to be able to return unauthorized already if not
         match bucket_config.clone() {
@@ -252,7 +256,7 @@ impl ProxyHttp for MyProxy {
                     // clone the PyObject so the async block is 'static
                     let cb = Python::with_gil(|py| py_cb.clone_ref(py));
                     move |bucket: String| async move {
-                        get_credential_for_bucket(&cb, bucket)
+                        get_credential_for_bucket(&cb, bucket, token)
                             .await
                             .map_err(|e| e.into()) // Convert PyErr → Box<dyn Error>
                     }

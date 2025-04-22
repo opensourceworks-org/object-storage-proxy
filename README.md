@@ -31,7 +31,6 @@ cos_map = {
     "bucket1": {
         "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
         "port": 443,
-        "apikey": "apikey",
         "ttl": 0
     },
     "bucket2": {
@@ -48,6 +47,19 @@ cos_map = {
     }
 }
 ```
+
+The Python callables take two arguments: 
+
+    - token: parsed from the original aws request's authorization header
+    - bucket: parsed from the uri path
+
+```python
+    def your_credentials_fetcher(token: str, bucket: str) -> str
+    def your_authorizer(token:str, bucket: str) -> bool
+```
+
+
+
 
 
 ### secrets
