@@ -30,6 +30,7 @@ def do_api_creds(bucket) -> str:
     print(f"Fetching credentials for {bucket}...")
     return apikey
 
+
 def do_hmac_creds(bucket) -> str:
     access_key = os.getenv("ACCESS_KEY")
     secret_key = os.getenv("SECRET_KEY")
@@ -41,6 +42,7 @@ def do_hmac_creds(bucket) -> str:
         "access_key": access_key,
         "secret_key": secret_key
     })
+
 
 def do_validation(token: str, bucket: str) -> bool:
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
@@ -56,7 +58,6 @@ def main() -> None:
     if counting:
         osp.enable_request_counting()
         print("Request counting enabled")
-
 
     apikey = os.getenv("COS_API_KEY")
     if not apikey:

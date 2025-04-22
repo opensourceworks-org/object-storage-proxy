@@ -9,13 +9,13 @@
 
 ## Introduction
 
-A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy IBM Cloud Object Storage buckets.
+A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets.
 
-- [x] Takes a Python authorization and api_key fetch callback function and cos bucket dictionary.
-- [x] The validation is cached with optional ttl.
-- [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration.
+- [x] Takes a Python authorization (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
+- [x] The validation is cached with optional ttl (default 5min, keep it short). 
+- [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration. (IBM only)
 - [x] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket (run once).
-- [ ] HMAC support: passing in access and secret id keys, will be used to sign the request
+- [x] HMAC support: passing in access and secret id keys (or as json string from python credentials callable), will be used to sign the request (AWS/IBM/..)
 
 The bucket dict contains for each bucket:
 
@@ -108,6 +108,7 @@ aws_secret_access_key = nothingmeaningful
 Set up a minimal server implementation:
 
 ```python
+import json
 import os
 import random
 import object_storage_proxy as osp
@@ -131,13 +132,27 @@ def strtobool(val: str) -> bool:
     raise ValueError(f"invalid truth value {val!r}")
 
 
-def docreds(bucket) -> str:
+def do_api_creds(bucket) -> str:
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
     
     print(f"Fetching credentials for {bucket}...")
     return apikey
+
+
+def do_hmac_creds(bucket) -> str:
+    access_key = os.getenv("ACCESS_KEY")
+    secret_key = os.getenv("SECRET_KEY")
+    if not access_key or not secret_key:
+        raise ValueError("ACCESS_KEY or SECRET_KEY environment variable not set")
+    print(f"Fetching HMAC credentials for {bucket}...")
+
+    return json.dumps({
+        "access_key": access_key,
+        "secret_key": secret_key
+    })
+
 
 def do_validation(token: str, bucket: str) -> bool:
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
@@ -162,17 +177,22 @@ def main() -> None:
     cos_map = {
         "bucket1": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
             "port": 443,
             "apikey": apikey,
             "ttl": 0
         },
         "bucket2": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
             "port": 443,
             "apikey": apikey
         },
         "proxy-bucket01": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
+            # "access_key": os.getenv("ACCESS_KEY"),
+            # "secret_key": os.getenv("SECRET_KEY"),
             "port": 443,
             "ttl": 300
         }
@@ -180,10 +200,11 @@ def main() -> None:
 
     ra = ProxyServerConfig(
         cos_map=cos_map,
-        bucket_creds_fetcher=docreds,
+        bucket_creds_fetcher=do_hmac_creds,  # or: do_api_creds
         validator=do_validation,
         http_port=6190,
-        https_port=8443
+        https_port=8443,
+        threads=1,
     )
 
     start_server(ra)
@@ -191,6 +212,10 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
 ```
 
 Run with [aws-cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (but could be anything compatible with the aws s3 api like polars, spark, presto, ...):
@@ -233,7 +258,7 @@ PYTHON: Validating headers: MYLOCAL123 for proxy-bucket01...
 
 # test
 
-See the included [python test script](./test_server.py).
+See the included [python test script](https://github.com/opensourceworks-org/object-storage-proxy/blob/main/test_server.py).
 
 Create self-signed certificates and export the environment variables:
 
@@ -252,7 +277,7 @@ export TLS_KEY_PATH=/full/path/key.pem
 # Status
 
 - [x] pingora proxy implementation
-- [x] pass in credentials handler
+- [x] pass in credentials handler (which may return either api key string or json string with access_key and secret_key  )
 - [x] cache credentials
 - [x] pass in bucket/instance and bucket/port config
 - [x] <del>split in workspace crate with core, cli and python crates</del> (too many specifics for python)
