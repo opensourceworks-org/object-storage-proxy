@@ -22,6 +22,8 @@ The bucket dict contains for each bucket:
     - endpoint host
     - port
     - api key (optional)
+    - hmac access key (optional)
+    - hmac secret key (optional)
     - ttl (optional, default 300) -> keep this reasonably short, but size to your needs
 
 ```json
@@ -29,17 +31,19 @@ cos_map = {
     "bucket1": {
         "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
         "port": 443,
-        "apikey": apikey,
+        "apikey": "apikey",
         "ttl": 0
     },
     "bucket2": {
         "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
         "port": 443,
-        "apikey": apikey
+        "apikey": "apikey"
     },
     "proxy-bucket01": {
         "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
         "port": 443,
+        "access_key": "<redacted>",
+        "secret_key": "<redacted>",
         "ttl": 300
     }
 }
