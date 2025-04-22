@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import object_storage_proxy as osp
@@ -21,13 +22,27 @@ def strtobool(val: str) -> bool:
     raise ValueError(f"invalid truth value {val!r}")
 
 
-def docreds(bucket) -> str:
+def do_api_creds(bucket) -> str:
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
     
     print(f"Fetching credentials for {bucket}...")
     return apikey
+
+
+def do_hmac_creds(bucket) -> str:
+    access_key = os.getenv("ACCESS_KEY")
+    secret_key = os.getenv("SECRET_KEY")
+    if not access_key or not secret_key:
+        raise ValueError("ACCESS_KEY or SECRET_KEY environment variable not set")
+    print(f"Fetching HMAC credentials for {bucket}...")
+
+    return json.dumps({
+        "access_key": access_key,
+        "secret_key": secret_key
+    })
+
 
 def do_validation(token: str, bucket: str) -> bool:
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
@@ -44,7 +59,6 @@ def main() -> None:
         osp.enable_request_counting()
         print("Request counting enabled")
 
-
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
@@ -52,17 +66,22 @@ def main() -> None:
     cos_map = {
         "bucket1": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
             "port": 443,
             "apikey": apikey,
             "ttl": 0
         },
         "bucket2": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
             "port": 443,
             "apikey": apikey
         },
         "proxy-bucket01": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
+            "region": "eu-de",
+            # "access_key": os.getenv("ACCESS_KEY"),
+            # "secret_key": os.getenv("SECRET_KEY"),
             "port": 443,
             "ttl": 300
         }
@@ -70,11 +89,11 @@ def main() -> None:
 
     ra = ProxyServerConfig(
         cos_map=cos_map,
-        bucket_creds_fetcher=docreds,
+        bucket_creds_fetcher=do_hmac_creds,
         validator=do_validation,
         http_port=6190,
         https_port=8443,
-        threads=4,
+        threads=1,
     )
 
     start_server(ra)
