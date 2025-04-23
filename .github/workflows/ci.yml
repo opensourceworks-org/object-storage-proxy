@@ -57,14 +57,14 @@ jobs:
       - name: Install AArch64 cross-compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu aarch64-linux-gnu-gcc
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         env:
           # point maturin's cc-rs at the aarch64 cross-compiler
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: gcc-aarch64-linux-gnu
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: gcc-aarch64-linux-gnu
           # force the assembler to know it's ARMv8-A
           CFLAGS_aarch64_unknown_linux_gnu: "-march=armv8-a -D__ARM_ARCH=8"
         with:
