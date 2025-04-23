@@ -31,57 +31,57 @@ jobs:
   #       run: cargo test --all-features
 
 
-  # linux:
-  #   runs-on: ${{ matrix.platform.runner }}
+  linux:
+    runs-on: ${{ matrix.platform.runner }}
 
-  #   strategy:
-  #     matrix:
-  #       platform:
-  #         - runner: ubuntu-22.04
-  #           target: x86_64
-  #         # - runner: ubuntu-22.04
-  #         #   target: aarch64
-  #         # - runner: ubuntu-22.04
-  #         #   target: armv7
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+          - runner: ubuntu-22.04
+            target: aarch64
+          # - runner: ubuntu-22.04
+          #   target: armv7
 
-  #   steps:
-  #     - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - uses: actions/setup-python@v5
-  #       with:
-  #         python-version: 3.12
-  #     # - name: Export aarch64 cross-compiler
-  #     #   if: matrix.platform.target == 'aarch64'
-  #     #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+      # - name: Export aarch64 cross-compiler
+      #   if: matrix.platform.target == 'aarch64'
+      #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
-  #     - name: Build wheels
-  #       uses: PyO3/maturin-action@v1
-  #       with:
-  #         target: ${{ matrix.platform.target }}
-  #         args: --release --out dist --find-interpreter
-  #         sccache: 'true'
-  #         manylinux: auto
-  #         before-script-linux: |
-  #           # If we're running on rhel centos, install needed packages.
-  #           if command -v yum &> /dev/null; then
-  #               yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+          manylinux: auto
+          before-script-linux: |
+            # If we're running on rhel centos, install needed packages.
+            if command -v yum &> /dev/null; then
+                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
 
-  #               # If we're running on i686 we need to symlink libatomic
-  #               # in order to build openssl with -latomic flag.
-  #               if [[ ! -d "/usr/lib64" ]]; then
-  #                   ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
-  #               fi
-  #           else
-  #               # If we're running on debian-based system.
-  #               apt update -y && apt-get install -y libssl-dev openssl pkg-config
-  #           fi
+                # If we're running on i686 we need to symlink libatomic
+                # in order to build openssl with -latomic flag.
+                if [[ ! -d "/usr/lib64" ]]; then
+                    ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
+                fi
+            else
+                # If we're running on debian-based system.
+                apt update -y && apt-get install -y libssl-dev openssl pkg-config
+            fi
             
 
-  #     - name: Upload wheels
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: wheels-linux-${{ matrix.platform.target }}
-  #         path: dist
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.platform.target }}
+          path: dist
 
   # musllinux:
   #   runs-on: ubuntu-22.04
@@ -159,31 +159,31 @@ jobs:
   #         path: dist
   
 
-  windows:
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      matrix:
-        platform:
-          - runner: windows-latest
-            target: x64
+  # windows:
+  #   runs-on: ${{ matrix.platform.runner }}
+  #   strategy:
+  #     matrix:
+  #       platform:
+  #         - runner: windows-latest
+  #           target: x64
 
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
-          architecture: ${{ matrix.platform.target }}
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-windows-${{ matrix.platform.target }}
-          path: dist
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: 3.x
+  #         architecture: ${{ matrix.platform.target }}
+  #     - name: Build wheels
+  #       uses: PyO3/maturin-action@v1
+  #       with:
+  #         target: ${{ matrix.platform.target }}
+  #         args: --release --out dist --find-interpreter
+  #         sccache: 'true'
+  #     - name: Upload wheels
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: wheels-windows-${{ matrix.platform.target }}
+  #         path: dist
 
   # macos:
   #   runs-on: ${{ matrix.platform.runner }}
