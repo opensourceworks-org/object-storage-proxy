@@ -143,9 +143,11 @@ jobs:
           source /root/.cargo/env
           export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
           export OPENSSL_STATIC=1
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install patchelf
           maturin build \
             --release \
-            --interpreter python3 \
             --manylinux musllinux_1_2 \
             --target ${{ matrix.target }} \
             --out dist
