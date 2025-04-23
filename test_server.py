@@ -38,6 +38,7 @@ def do_hmac_creds(token: str, bucket: str) -> str:
     secret_key = os.getenv("SECRET_KEY")
     if not access_key or not secret_key:
         raise ValueError("ACCESS_KEY or SECRET_KEY environment variable not set")
+        
     print(f"Fetching HMAC credentials for {bucket}...")
 
     return json.dumps({
@@ -47,7 +48,13 @@ def do_hmac_creds(token: str, bucket: str) -> str:
 
 
 def do_validation(token: str, bucket: str) -> bool:
-    """ Authorize the request based on token for the given bucket. """
+    """ Authorize the request based on token for the given bucket. 
+        You can plug in your own authorization service here.
+        The token is the authorization token passed in the request.
+        The bucket is the bucket name.
+        The function should return True if the request is authorized, False otherwise.
+    """
+
     print(f"PYTHON: Validating headers: {token} for {bucket}...")
     # return random.choice([True, False])
     return True

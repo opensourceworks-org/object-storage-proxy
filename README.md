@@ -11,10 +11,10 @@
 
 A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets and integrate your Authentication and Authorization services.
 
-- [x] Takes a Python authorization (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
+- [x] Takes a Python authorization callable function (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
 - [x] The validation is cached with optional ttl (default 5min, keep it short). 
 - [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration. (IBM only)
-- [x] If no apikey is provided, a Python function can be passed in to fetch the apikey for any given bucket (run once).
+- [x] If no apikey is provided, a Python function can be passed in to fetch the apikey or hmac keys for any given bucket (run once).
 - [x] HMAC support: passing in access and secret id keys (or as json string from python credentials callable), will be used to sign the request (AWS/IBM/..)
 
 The bucket dict contains for each bucket:
@@ -95,6 +95,8 @@ Pass in a function which maps bucket to instance (credentials), and a function t
 
 ![request lifecycle](https://raw.githubusercontent.com/opensourceworks-org/object-storage-proxy/62adceaddefa2ad911d80fb13a3f9cec2eff8829/img/request_lifecycle.svg)
 
+![request stages](https://raw.githubusercontent.com/opensourceworks-org/object-storage-proxy/d8ca9ee95f820c9525fef0b703ad28a8bcceedb7/img/request_stages.svg)
+
 # authentication & authorization
 The advantage is we can plug in a python authentication function and another function for authorization, allowing for fine-grained control.
 
@@ -113,7 +115,7 @@ With local configuration.
 [profile osp]
 region = eu-west-3
 output = json
-services = pingora-services
+services = osp-services
 s3 =
     addressing_style = path
 
@@ -125,8 +127,8 @@ s3 =
 ~/.aws/credentials
 ```ini
 [osp]
-aws_access_key_id = MYLOCAL123
-aws_secret_access_key = nothingmeaningful
+aws_access_key_id = MYLOCAL123  # <-- this could be an openid connect/oauth2 token or anything that makes sense for your business, encode it if required
+aws_secret_access_key = nothingmeaningful # <-- used for compatibility with aws sdk, to sign original request, but is ignored later
 ```
 
 Set up a minimal server implementation:
