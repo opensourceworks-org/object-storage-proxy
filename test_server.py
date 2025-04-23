@@ -34,8 +34,8 @@ def do_api_creds(token: str, bucket: str) -> str:
 
 def do_hmac_creds(token: str, bucket: str) -> str:
     """ Fetch HMAC credentials (ro, rw, access_denied) for the given bucket, depending on the token """
-    access_key = os.getenv("ACCESS_KEY")
-    secret_key = os.getenv("SECRET_KEY")
+    access_key = os.getenv("AWS_ACCESS_KEY")
+    secret_key = os.getenv("AWS_SECRET_KEY")
     if not access_key or not secret_key:
         raise ValueError("ACCESS_KEY or SECRET_KEY environment variable not set")
     print(f"Fetching HMAC credentials for {bucket}...")

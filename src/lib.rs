@@ -273,6 +273,8 @@ impl ProxyHttp for MyProxy {
                 pingora::Error::new_str("Credential fetch failed")
             })?;
 
+        dbg!(&item);
+
         // we have to check for some available credentials here to be able to return unauthorized already if not
         match bucket_config.clone() {
             Some(mut config) => {
