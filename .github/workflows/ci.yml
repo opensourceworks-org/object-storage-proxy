@@ -31,108 +31,108 @@ jobs:
         run: cargo test --all-features
 
 
-  linux:
-    runs-on: ${{ matrix.platform.runner }}
-
-    strategy:
-      matrix:
-        platform:
-          - runner: ubuntu-22.04
-            target: x86_64
-          # - runner: ubuntu-22.04
-          #   target: aarch64
-          # - runner: ubuntu-22.04
-          #   target: armv7
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.12
-      # - name: Export aarch64 cross-compiler
-      #   if: matrix.platform.target == 'aarch64'
-      #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
-          manylinux: auto
-          before-script-linux: |
-            # If we're running on rhel centos, install needed packages.
-            if command -v yum &> /dev/null; then
-                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
-
-                # If we're running on i686 we need to symlink libatomic
-                # in order to build openssl with -latomic flag.
-                if [[ ! -d "/usr/lib64" ]]; then
-                    ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
-                fi
-            else
-                # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config
-            fi
-            
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-linux-${{ matrix.platform.target }}
-          path: dist
-
-  # musllinux:
+  # linux:
   #   runs-on: ${{ matrix.platform.runner }}
+
   #   strategy:
   #     matrix:
   #       platform:
   #         - runner: ubuntu-22.04
   #           target: x86_64
+  #         # - runner: ubuntu-22.04
+  #         #   target: aarch64
+  #         # - runner: ubuntu-22.04
+  #         #   target: armv7
+
   #   steps:
   #     - uses: actions/checkout@v4
+
   #     - uses: actions/setup-python@v5
   #       with:
   #         python-version: 3.12
+  #     # - name: Export aarch64 cross-compiler
+  #     #   if: matrix.platform.target == 'aarch64'
+  #     #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
   #     - name: Build wheels
   #       uses: PyO3/maturin-action@v1
   #       with:
   #         target: ${{ matrix.platform.target }}
   #         args: --release --out dist --find-interpreter
   #         sccache: 'true'
-  #         manylinux: musllinux_1_2
+  #         manylinux: auto
   #         before-script-linux: |
+  #           # If we're running on rhel centos, install needed packages.
   #           if command -v yum &> /dev/null; then
-  #             # CentOS‑based manylinux
-  #             yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
-  #           elif command -v apt-get &> /dev/null; then
-  #             # Debian/Ubuntu
-  #             apt update -y && apt-get install -y libssl-dev openssl pkg-config
-  #           elif command -v apk &> /dev/null; then
-  #             # Alpine‑based musllinux
-  #             apk update
-  #             apk add --no-cache \
-  #               openssl \
-  #               openssl-dev \
-  #               pkgconfig \
-  #               perl \
-  #               perl-ipc-cmd
-  #             export OPENSSL_DIR=/usr
-  #             export OPENSSL_INCLUDE_DIR=/usr/include
-  #             export OPENSSL_LIB_DIR=/usr/lib
-  #             export X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr
-  #             export PKG_CONFIG_ALLOW_CROSS=1
-  #             export PKG_CONFIG_PATH=/usr/lib/pkgconfig
+  #               yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
+
+  #               # If we're running on i686 we need to symlink libatomic
+  #               # in order to build openssl with -latomic flag.
+  #               if [[ ! -d "/usr/lib64" ]]; then
+  #                   ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
+  #               fi
   #           else
-  #             echo "Unsupported distro for before-script-linux" >&2
-  #             exit 1
+  #               # If we're running on debian-based system.
+  #               apt update -y && apt-get install -y libssl-dev openssl pkg-config
   #           fi
+            
+
   #     - name: Upload wheels
   #       uses: actions/upload-artifact@v4
   #       with:
-  #         name: wheels-musllinux-${{ matrix.platform.target }}
+  #         name: wheels-linux-${{ matrix.platform.target }}
   #         path: dist
+
+  musllinux:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+          manylinux: musllinux_1_2
+          before-script-linux: |
+            if command -v yum &> /dev/null; then
+              # CentOS‑based manylinux
+              yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-CPAN
+            elif command -v apt-get &> /dev/null; then
+              # Debian/Ubuntu
+              apt update -y && apt-get install -y libssl-dev openssl pkg-config
+            elif command -v apk &> /dev/null; then
+              # Alpine‑based musllinux
+              apk update
+              apk add --no-cache \
+                openssl \
+                openssl-dev \
+                pkgconfig \
+                perl \
+                perl-ipc-cmd
+              export OPENSSL_DIR=/usr
+              export OPENSSL_INCLUDE_DIR=/usr/include
+              export OPENSSL_LIB_DIR=/usr/lib
+              export X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr
+              export PKG_CONFIG_ALLOW_CROSS=1
+              export PKG_CONFIG_PATH=/usr/lib/pkgconfig
+            else
+              echo "Unsupported distro for before-script-linux" >&2
+              exit 1
+            fi
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-musllinux-${{ matrix.platform.target }}
+          path: dist
 
   # windows:
   #   runs-on: ${{ matrix.platform.runner }}
@@ -201,28 +201,28 @@ jobs:
           name: wheels-sdist
           path: dist
 
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs: [test, linux, macos, sdist]
-    permissions:
-      # Use to sign the release artifacts
-      id-token: write
-      # Used to upload release artifacts
-      contents: write
-      # Used to generate artifact attestation
-      attestations: write
-    steps:
-      - uses: actions/download-artifact@v4
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: 'wheels-*/*'
-      - name: Publish to PyPI
-        uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        with:
-          command: upload
-          args: --non-interactive --skip-existing wheels-*/*
+  # release:
+  #   name: Release
+  #   runs-on: ubuntu-latest
+  #   if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+  #   needs: [test, linux, macos, sdist]
+  #   permissions:
+  #     # Use to sign the release artifacts
+  #     id-token: write
+  #     # Used to upload release artifacts
+  #     contents: write
+  #     # Used to generate artifact attestation
+  #     attestations: write
+  #   steps:
+  #     - uses: actions/download-artifact@v4
+  #     - name: Generate artifact attestation
+  #       uses: actions/attest-build-provenance@v1
+  #       with:
+  #         subject-path: 'wheels-*/*'
+  #     - name: Publish to PyPI
+  #       uses: PyO3/maturin-action@v1
+  #       env:
+  #         MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+  #       with:
+  #         command: upload
+  #         args: --non-interactive --skip-existing wheels-*/*
