@@ -37,8 +37,8 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: ubuntu-22.04
-            target: x86_64
+          # - runner: ubuntu-22.04
+          #   target: x86_64
           - runner: ubuntu-22.04
             target: aarch64
           # - runner: ubuntu-22.04
@@ -53,6 +53,12 @@ jobs:
       # - name: Export aarch64 cross-compiler
       #   if: matrix.platform.target == 'aarch64'
       #   run: echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Install AArch64 cross-compiler
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
