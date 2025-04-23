@@ -111,7 +111,8 @@ jobs:
             pkgconfig \
             openssl-dev \
             curl \
-            cmake
+            cmake \
+            patchelf
           ln -s "$(which gcc)" /usr/bin/musl-gcc
 
           # sanity‐check it
