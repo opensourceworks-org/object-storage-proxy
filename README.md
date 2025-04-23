@@ -104,7 +104,7 @@ The advantage is we can plug in a python authentication function and another fun
 We use the standard aws hmac header.
 
 ## authorization
-Pass in a callable from python which will be called from rust.  This will be cached (ttl) for consequtive requests.
+Pass in a callable from python which will be called from rust.  This will be cached (ttl) for consecutive requests.
 
 # Examples
 
@@ -312,5 +312,6 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [x] configurable request counting
 - [x] call the api key fetcher callback only once, save to cos map
 - [x] config for #threads in ProxyServerConfig
-- [ ] also pass path and method to python callbacks and cache by token/bucket/path/method 
+- [ ] also pass path and method to python callbacks and cache by token/bucket/path/method (identity based access/cache)
 - [x] option to disable upstream/peer certificate validation (for development, not production!)
+- [ ] expose proxy server and services configuration to python
