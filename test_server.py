@@ -99,8 +99,8 @@ def main() -> None:
         "proxy-aws-bucket01": {
             "host": "s3.eu-west-3.amazonaws.com",
             "region": "eu-west-3",
-            "access_key": os.getenv("AWS_ACCESS_KEY"),
-            "secret_key": os.getenv("AWS_SECRET_KEY"),
+            # "access_key": os.getenv("AWS_ACCESS_KEY"),
+            # "secret_key": os.getenv("AWS_SECRET_KEY"),
             "port": 443,
             "ttl": 300
         }

@@ -1,5 +1,6 @@
 #![warn(clippy::all)]
 use async_trait::async_trait;
+use credentials::bucket_creds_proxy::BucketCredProxy;
 use dotenv::dotenv;
 use http::Uri;
 use http::uri::Authority;
@@ -160,6 +161,7 @@ pub struct MyProxy {
     validator: Option<PyObject>,
     bucket_creds_fetcher: Option<PyObject>,
     verify: Option<bool>,
+    cred_proxy: Arc<BucketCredProxy>,
 }
 
 pub struct MyCtx {
@@ -168,6 +170,7 @@ pub struct MyCtx {
     auth_cache: AuthCache,
     validator: Option<PyObject>,
     bucket_creds_fetcher: Option<PyObject>,
+    cred_proxy: Arc<BucketCredProxy>,
 }
 
 #[async_trait]
@@ -186,9 +189,13 @@ impl ProxyHttp for MyProxy {
                 .bucket_creds_fetcher
                 .as_ref()
                 .map(|v| Python::with_gil(|py| v.clone_ref(py))),
+            cred_proxy: Arc::clone(&self.cred_proxy),
         }
     }
-
+    /// This function is called when a request is received.  It checks if the request is authorized and bails out early if not.
+    /// It also checks if the bucket is configured and fetches credentials if needed.
+    /// If the request is authorized and the bucket is configured, it returns false to continue processing.
+    /// If the request is not authorized or the bucket is not configured, it returns true to stop processing.
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
         let path = session.req_header().uri.path();
@@ -257,6 +264,15 @@ impl ProxyHttp for MyProxy {
             .1
             .to_string();
 
+        let item = ctx
+            .cred_proxy
+            .ensure_for(&hdr_bucket, &token)
+            .await
+            .map_err(|e| {
+                error!("Credential fetch failed: {}", e);
+                pingora::Error::new_str("Credential fetch failed")
+            })?;
+
         // we have to check for some available credentials here to be able to return unauthorized already if not
         match bucket_config.clone() {
             Some(mut config) => {
@@ -298,6 +314,10 @@ impl ProxyHttp for MyProxy {
         Ok(false)
     }
 
+    /// This function is called when a request is received.  It creates an upstream peer for the request.
+    /// It uses the bucket name to determine the endpoint and port for the upstream peer.
+    /// It also sets the verify_cert and verify_hostname options for the peer.
+    /// It returns the upstream peer.
     async fn upstream_peer(
         &self,
         session: &mut Session,
@@ -350,13 +370,14 @@ impl ProxyHttp for MyProxy {
         } else {
             peer.options.verify_cert = true;
         }
-        
+
         debug!("peer: {:#?}", &peer);
 
         debug!("upstream_peer::end");
         Ok(peer)
     }
 
+    /// This function configures the upstream request. It sets the upstream url with corresponding Authorization header.
     async fn upstream_request_filter(
         &self,
         _session: &mut Session,
@@ -484,6 +505,15 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     my_server.bootstrap();
 
     let validator = run_args.validator.as_ref().map(|v| v.clone_ref(py));
+    let bucket_fetcher = run_args
+        .bucket_creds_fetcher
+        .as_ref()
+        .map(|v| v.clone_ref(py));
+
+    let cred_proxy = Arc::new(BucketCredProxy::new(
+        Arc::clone(&cosmap),
+        bucket_fetcher,
+    ));
 
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,
@@ -498,6 +528,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
                 .as_ref()
                 .map(|v| v.clone_ref(py)),
             verify: run_args.verify,
+            cred_proxy,
         },
     );
 
