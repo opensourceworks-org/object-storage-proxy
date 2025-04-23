@@ -110,7 +110,8 @@ jobs:
             libffi-dev \
             pkgconfig \
             openssl-dev \
-            curl
+            curl \
+            cmake
           ln -s "$(which gcc)" /usr/bin/musl-gcc
 
           # sanity‐check it
