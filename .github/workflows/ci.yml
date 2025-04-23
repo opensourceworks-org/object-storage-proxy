@@ -107,7 +107,7 @@ jobs:
             python3-dev \
             py3-pip \
             build-base \
-            musl-tools \
+            musl-gcc \
             musl-dev \
             libffi-dev \
             pkgconfig \
