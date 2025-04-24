@@ -408,6 +408,26 @@ impl ProxyHttp for MyProxy {
             None => (false, None),
         };
 
+        let allowed = [
+            "host",
+            "content-length",
+            "x-amz-date",
+            "x-amz-content-sha256",
+            "x-amz-security-token", // if you’re using temporary creds
+        ];
+        
+        let to_check: Vec<String> = upstream_request
+            .headers
+            .iter()
+            .map(|(name, _)| name.as_str().to_owned())
+            .collect();
+        
+        for name in to_check {
+            if !allowed.contains(&name.as_str()) {
+                let _ = upstream_request.remove_header(&name);
+            }
+        }
+
         if maybe_hmac {
             info!("HMAC: Signing request for bucket: {}", hdr_bucket);
             sign_request(upstream_request, bucket_config.as_ref().unwrap())

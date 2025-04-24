@@ -71,19 +71,26 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         service: &'a str,
         body: &'a B,
     ) -> Self {
+        let allowed = [
+            "host",
+            "content-length",
+            "x-amz-date",
+            "x-amz-content-sha256",
+            "x-amz-security-token",
+        ];
+
         let url: Url = url.parse().unwrap();
         let headers: HashMap<String, String> = headers
             .iter()
             .filter_map(|(key, value)| {
-                let kl = key.as_str().to_lowercase();
-                if kl.starts_with("x-") && !kl.starts_with("x-amz-") {
+                let name = key.as_str().to_lowercase();
+                if !allowed.contains(&name.as_str()) {
                     return None;
                 }
-                if let Ok(value_inner) = value.to_str() {
-                    Some((key.as_str().to_owned(), value_inner.to_owned()))
-                } else {
-                    None
-                }
+                value
+                    .to_str()
+                    .ok()
+                    .map(|v| (name, v.trim().to_owned()))
             })
             .collect();
         Self {
