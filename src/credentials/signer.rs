@@ -75,6 +75,10 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         let headers: HashMap<String, String> = headers
             .iter()
             .filter_map(|(key, value)| {
+                let kl = key.as_str().to_lowercase();
+                if kl.starts_with("x-") && !kl.starts_with("x-amz-") {
+                    return None;
+                }
                 if let Ok(value_inner) = value.to_str() {
                     Some((key.as_str().to_owned(), value_inner.to_owned()))
                 } else {

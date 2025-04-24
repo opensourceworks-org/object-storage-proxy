@@ -342,7 +342,6 @@ impl ProxyHttp for MyProxy {
 
         debug!("peer: {:#?}", &peer);
 
-        // todo: make this configurable, with warning for production
         if let Some(verify) = self.verify {
             info!("Verify peer (upstream) certificates disabled!");
             peer.options.verify_cert = verify;

@@ -315,3 +315,4 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [ ] also pass path and method to python callbacks and cache by token/bucket/path/method (identity based access/cache)
 - [x] option to disable upstream/peer certificate validation (for development, not production!)
 - [ ] expose proxy server and services configuration to python
+- [ ] option to drop proxy headers (x-forwarded-proto, x-forwarded-host, ..)
