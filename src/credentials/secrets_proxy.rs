@@ -170,6 +170,8 @@ pub(crate) async fn get_credential_for_bucket(
 
 #[cfg(test)]
 mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -267,4 +269,56 @@ mod tests {
             Err(format!("Failed to get token: {}", err_text).into())
         }
     }
+
+    #[tokio::test]
+    async fn secrets_cache_hit_returns_cached_value() {
+        let cache = SecretsCache::new();
+        let key = "test".to_string();
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        cache.insert(key.clone(), "cached_token".to_string(), now + 3600);
+
+
+        let fetcher = || async { panic!("Should not be called on cache hit") };
+
+        let result = cache.get(&key, fetcher).await;
+        assert_eq!(result, Some("cached_token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn secrets_cache_expired_renews_token() {
+        let cache = SecretsCache::new();
+        let key = "test2".to_string();
+        // expired token
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        cache.insert(key.clone(), "old_token".to_string(), now);
+    
+        // fetcher returns new token
+        let fetcher = move || async {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            Ok(IamResponse { access_token: "new_token".into(), expires_in: 3600, expiration: now + 7200 })
+        };
+    
+        let result = cache.get(&key, fetcher).await;
+        assert_eq!(result, Some("new_token".to_string()));
+    }
+    
+    #[tokio::test]
+    async fn secrets_cache_invalidate_works() {
+        let cache = SecretsCache::new();
+        let key = "test3".to_string();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        cache.insert(key.clone(), "token".to_string(), now + 3600);
+    
+        cache.invalidate(&key);
+    
+        // now fetcher must be called
+        let fetcher = move || async {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            Ok(IamResponse { access_token: "fresh_token".into(), expires_in: 3600, expiration: now + 3600 })
+        };
+        let result = cache.get(&key, fetcher).await;
+        assert_eq!(result, Some("fresh_token".to_string()));
+    }
+
 }

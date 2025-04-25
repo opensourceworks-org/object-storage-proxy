@@ -508,4 +508,21 @@ mod tests {
         let msg = format!("{}", err);
         assert!(msg.contains("Missing region, access_key or secret_key"));
     }
+
+    #[test]
+    fn uri_encode_edge_cases() {
+        assert_eq!(uri_encode("simple", true), "simple");
+        assert_eq!(uri_encode("a b", true), "a%20b");
+        assert_eq!(uri_encode("/path/with/slash", true), "%2Fpath%2Fwith%2Fslash");
+        assert_eq!(uri_encode("/path/with/slash", false), "/path/with/slash");
+        assert_eq!(uri_encode("unicode✓", true).contains("%E2%9C%93"), true);
+    }
+
+    #[test]
+    fn canonical_query_string_sorts_and_encodes() {
+        let url = "https://example.com/?b=2&a=1 space";
+        let parsed = url.parse().unwrap();
+        let qs = canonical_query_string(&parsed);
+        assert_eq!(qs, "a=1%20space&b=2");
+    }
 }

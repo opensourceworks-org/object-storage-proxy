@@ -11,7 +11,7 @@
 
 A fast and safe in-process reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets and integrate your Authentication and Authorization services.
 
-- [x] Takes a Python authorization callable function (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
+- [x] Takes a Python authorization callable (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
 - [x] The validation is cached with optional ttl (default 5min, keep it short). 
 - [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration. (IBM only)
 - [x] If no apikey is provided, a Python function can be passed in to fetch the apikey or hmac keys for any given bucket (run once).

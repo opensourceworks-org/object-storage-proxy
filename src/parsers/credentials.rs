@@ -21,4 +21,17 @@ mod tests {
         let result = parse_token_from_header(input);
         assert_eq!(result, Ok(("", ("MYLOCAL123"))));
     }
+
+    #[test]
+    fn parse_token_from_header_success_and_error() {
+        let input = "AWS4-HMAC-SHA256 Credential=TOKEN123/20250417/eu-west-1/s3/aws4_request, SignedHeaders=host,Signature=abc";
+        let result = parse_token_from_header(input);
+        assert!(result.is_ok());
+        let (remaining, token) = result.unwrap();
+        assert_eq!(token, "TOKEN123");
+        assert_eq!(remaining, "");
+
+        let bad = "NoCredentialHere";
+        assert!(parse_token_from_header(bad).is_err());
+    }
 }

@@ -15,7 +15,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-// use rustls::crypto::aws_lc_rs::sign;
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -247,9 +247,6 @@ impl ProxyHttp for MyProxy {
         Ok(peer)
     }
 
-    // fn init_downstream_modules(&self, _modules: &mut HttpModules) {
-    //     // noop: leave out ResponseCompressionBuilder
-    // }
 
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
@@ -322,7 +319,6 @@ impl ProxyHttp for MyProxy {
         // we have to check for some available credentials here to be able to return unauthorized already if not
         match bucket_config.clone() {
             Some(mut config) => {
-                // (1) build an optional fetcher that matches ensure_credentials’ signature
                 let fetcher_opt = ctx.bucket_creds_fetcher.as_ref().map(|py_cb| {
                     // clone the PyObject so the async block is 'static
                     let cb = Python::with_gil(|py| py_cb.clone_ref(py));
@@ -333,7 +329,6 @@ impl ProxyHttp for MyProxy {
                     }
                 });
 
-                // (2) make sure we now *mutably* update the struct
                 config
                     .ensure_credentials(&hdr_bucket, fetcher_opt)
                     .await
@@ -342,7 +337,6 @@ impl ProxyHttp for MyProxy {
                         pingora::Error::new_str("Credential check failed")
                     })?;
 
-                // (3) persist any newly‑fetched creds back into the shared map
                 ctx.cos_mapping
                     .write()
                     .await
@@ -480,51 +474,7 @@ impl ProxyHttp for MyProxy {
 
         Ok(())
     }
-    // fn upstream_response_filter(
-    //     &self,
-    //     _session: &mut Session,
-    //     upstream_response: &mut ResponseHeader,
-    //     ctx: &mut Self::CTX,
-    // ) -> () {
-    //
-    //     if let Some(cl) = upstream_response.headers.get("content-length") {
-    //         if let Ok(s) = cl.to_str() {
-    //             if let Ok(n) = s.parse::<u64>() {
-    //                 ctx.expected_len = Some(n);
-    //             }
-    //         }
-    //     }
-    //
-    //     for h in &[
-    //         "connection",
-    //         "keep-alive",
-    //         "proxy-connection",
-    //         "transfer-encoding",
-    //         "upgrade",
-    //         "proxy-authenticate",
-    //         "proxy-authorization",
-    //         "te",
-    //         "trailer",
-    //     ] {
-    //         let _ = upstream_response.remove_header(*h);
-    //     }
-    //
-    // }
 
-//     async fn response_filter(
-//         &self,
-//         _session: &mut Session,
-//         upstream_response: &mut ResponseHeader,
-//         ctx: &mut Self::CTX,
-//     ) -> Result<()> {
-//         if let Some(n) = ctx.expected_len {
-//             for h in &["transfer-encoding","connection"] {
-//                 let _ = upstream_response.remove_header(*h);
-//             }
-//             let _ = upstream_response.insert_header("content-length", n.to_string());
-//         }
-//         Ok(())
-//     }
 }
 
 pub fn init_tracing() {

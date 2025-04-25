@@ -23,3 +23,36 @@ impl BucketCredential {
         BucketCredential::ApiKey(raw.to_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+
+    #[test]
+    fn parse_bucket_credential_variants() {
+        let hmac_json = r#"{ "access_key": "AK", "secret_key": "SK" }"#;
+        match BucketCredential::parse(hmac_json) {
+            BucketCredential::Hmac { access_key, secret_key } => {
+                assert_eq!(access_key, "AK");
+                assert_eq!(secret_key, "SK");
+            }
+            _ => panic!("Expected Hmac variant"),
+        }
+
+        let api_json = r#"{ "api_key": "APIKEY" }"#;
+        if let BucketCredential::ApiKey(k) = BucketCredential::parse(api_json) {
+            assert_eq!(k, "APIKEY");
+        } else {
+            panic!("Expected ApiKey variant");
+        }
+
+        let raw = "raw_token";
+        if let BucketCredential::ApiKey(k) = BucketCredential::parse(raw) {
+            assert_eq!(k, raw);
+        } else {
+            panic!("Expected fallback ApiKey variant");
+        }
+    }
+
+}

@@ -26,6 +26,9 @@ dependencies = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 
+[tool.uv.workspace]
+members = ["integration"]
+
 [dependency-groups]
 dev = []
 

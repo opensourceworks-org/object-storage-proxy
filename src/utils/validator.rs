@@ -130,3 +130,50 @@ pub async fn validate_request(
 
     Ok(authorized)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn auth_cache_get_or_validate_behaviors() {
+        let cache = AuthCache::new();
+        let key = "auth_key";
+
+        let calls = Arc::new(Mutex::new(0));
+        let validator = {
+            let calls = Arc::clone(&calls);
+            move || {
+                let calls = Arc::clone(&calls);
+                async move {
+                    let mut calls_lock = calls.lock().await;
+                    *calls_lock += 1;
+                    Ok::<bool, std::convert::Infallible>(true)
+                }
+            }
+        };
+        let res1 = cache.get_or_validate(key, Duration::from_secs(1), validator).await.unwrap();
+        assert!(res1);
+        assert_eq!(*calls.lock().await, 1);
+
+        // second call within TTL: cache hit, no new call
+        let res2 = cache.get_or_validate(key, Duration::from_secs(1), {
+            let calls = Arc::clone(&calls);
+            move || {
+                let calls = Arc::clone(&calls);
+                async move {
+                    let mut calls_lock = calls.lock().await;
+                    *calls_lock += 1;
+                    Ok::<bool, std::convert::Infallible>(false)
+                }
+            }
+        }).await.unwrap();
+        assert!(res2);
+        assert_eq!(*calls.lock().await, 1);
+
+        // wait for expiry
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let res3 = cache.get_or_validate(key, Duration::from_secs(1), || async move { Ok::<bool, std::convert::Infallible>(false) }).await.unwrap();
+        assert!(!res3);
+    }
+}
