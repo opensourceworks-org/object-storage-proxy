@@ -6,7 +6,7 @@ use std::{
 use pyo3::{PyObject, PyResult, Python};
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 #[derive(Clone, Debug)]
 pub struct SecretValue {

@@ -1,6 +1,6 @@
 use pyo3::{PyObject, Python};
 use tokio::{sync::Mutex, task};
-use tracing::{error, info};
+use tracing::{debug, error};
 
 use std::{
     collections::HashMap,
