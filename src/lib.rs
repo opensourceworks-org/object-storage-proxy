@@ -7,6 +7,7 @@ use parsers::cos_map::{CosMapItem, parse_cos_map};
 use pingora::Result;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
+use pingora::http::ResponseHeader;
 use pingora::upstreams::peer::HttpPeer;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
@@ -189,6 +190,64 @@ impl ProxyHttp for MyProxy {
         }
     }
 
+    async fn upstream_peer(
+        &self,
+        session: &mut Session,
+        ctx: &mut Self::CTX,
+    ) -> Result<Box<HttpPeer>> {
+        debug!("upstream_peer::start");
+        if REQ_COUNTER_ENABLED.load(Ordering::Relaxed) {
+            let new_val = REQ_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+            debug!("Request count: {}", new_val);
+        }
+
+        let path = session.req_header().uri.path();
+
+        let parse_path_result = parse_path(path);
+        if parse_path_result.is_err() {
+            error!("Failed to parse path: {:?}", parse_path_result);
+            return Err(pingora::Error::new_str("Failed to parse path"));
+        }
+
+        let (_, (bucket, _)) = parse_path(path).unwrap();
+
+        let hdr_bucket = bucket.to_owned();
+
+        let bucket_config = {
+            let map = ctx.cos_mapping.read().await;
+            map.get(&hdr_bucket).cloned()
+        };
+        let endpoint = match bucket_config.clone() {
+            Some(config) => format!("{}.{}", bucket, config.host.to_owned()),
+            None => {
+                format!("{}.{}", bucket, self.cos_endpoint)
+            }
+        };
+
+        let port = bucket_config
+            .and_then(|config| Some(config.port))
+            .unwrap_or(443);
+
+        let addr = (endpoint.clone(), port);
+
+        let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
+
+        debug!("peer: {:#?}", &peer);
+
+        if let Some(verify) = self.verify {
+            info!("Verify peer (upstream) certificates disabled!");
+            peer.options.verify_cert = verify;
+            peer.options.verify_hostname = verify;
+        } else {
+            peer.options.verify_cert = true;
+        }
+
+        debug!("peer: {:#?}", &peer);
+
+        debug!("upstream_peer::end");
+        Ok(peer)
+    }
+
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
         let path = session.req_header().uri.path();
@@ -296,64 +355,6 @@ impl ProxyHttp for MyProxy {
         debug!("request_filter::Credentials checked for bucket: {}. End of function.", hdr_bucket);
         debug!("request_filter::end");
         Ok(false)
-    }
-
-    async fn upstream_peer(
-        &self,
-        session: &mut Session,
-        ctx: &mut Self::CTX,
-    ) -> Result<Box<HttpPeer>> {
-        debug!("upstream_peer::start");
-        if REQ_COUNTER_ENABLED.load(Ordering::Relaxed) {
-            let new_val = REQ_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
-            debug!("Request count: {}", new_val);
-        }
-
-        let path = session.req_header().uri.path();
-
-        let parse_path_result = parse_path(path);
-        if parse_path_result.is_err() {
-            error!("Failed to parse path: {:?}", parse_path_result);
-            return Err(pingora::Error::new_str("Failed to parse path"));
-        }
-
-        let (_, (bucket, _)) = parse_path(path).unwrap();
-
-        let hdr_bucket = bucket.to_owned();
-
-        let bucket_config = {
-            let map = ctx.cos_mapping.read().await;
-            map.get(&hdr_bucket).cloned()
-        };
-        let endpoint = match bucket_config.clone() {
-            Some(config) => format!("{}.{}", bucket, config.host.to_owned()),
-            None => {
-                format!("{}.{}", bucket, self.cos_endpoint)
-            }
-        };
-
-        let port = bucket_config
-            .and_then(|config| Some(config.port))
-            .unwrap_or(443);
-
-        let addr = (endpoint.clone(), port);
-
-        let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
-
-        debug!("peer: {:#?}", &peer);
-
-        if let Some(verify) = self.verify {
-            info!("Verify peer (upstream) certificates disabled!");
-            peer.options.verify_cert = verify;
-            peer.options.verify_hostname = verify;
-        } else {
-            peer.options.verify_cert = true;
-        }
-        
-        debug!("peer: {:#?}", &peer);
-
-        debug!("upstream_peer::end");
-        Ok(peer)
     }
 
     async fn upstream_request_filter(
@@ -471,6 +472,38 @@ impl ProxyHttp for MyProxy {
         debug!("upstream_request_filter::end");
 
         Ok(())
+    }
+
+    fn upstream_response_filter(
+        &self,
+        _session: &mut Session,
+        upstream_response: &mut ResponseHeader,
+        _ctx: &mut Self::CTX,
+    ) -> () {
+        let content_len = upstream_response
+            .headers
+            .get("content-length")
+            .cloned();
+
+        for h in &[
+            "connection",
+            "keep-alive",
+            "proxy-connection",
+            "transfer-encoding",
+            "upgrade",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+        ] {
+            let _ = upstream_response.remove_header(*h);
+        }
+
+        if let Some(len) = content_len {
+           let _ =  upstream_response.insert_header("content-length", len);
+        }
+
+        
     }
 }
 
