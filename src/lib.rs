@@ -7,7 +7,6 @@ use parsers::cos_map::{CosMapItem, parse_cos_map};
 use pingora::Result;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
-use pingora::http::ResponseHeader;
 use pingora::upstreams::peer::HttpPeer;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
@@ -248,6 +247,10 @@ impl ProxyHttp for MyProxy {
         Ok(peer)
     }
 
+    // fn init_downstream_modules(&self, _modules: &mut HttpModules) {
+    //     // noop: leave out ResponseCompressionBuilder
+    // }
+
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
         let path = session.req_header().uri.path();
@@ -363,6 +366,9 @@ impl ProxyHttp for MyProxy {
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
+
+        let _ = upstream_request.remove_header("accept-encoding");
+
         debug!("upstream_request_filter::start");
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
 
@@ -414,15 +420,16 @@ impl ProxyHttp for MyProxy {
             "content-length",
             "x-amz-date",
             "x-amz-content-sha256",
-            "x-amz-security-token", // if you’re using temporary creds
+            "x-amz-security-token",
+            "range",
         ];
-        
+
         let to_check: Vec<String> = upstream_request
             .headers
             .iter()
             .map(|(name, _)| name.as_str().to_owned())
             .collect();
-        
+
         for name in to_check {
             if !allowed.contains(&name.as_str()) {
                 let _ = upstream_request.remove_header(&name);
@@ -473,38 +480,51 @@ impl ProxyHttp for MyProxy {
 
         Ok(())
     }
+    // fn upstream_response_filter(
+    //     &self,
+    //     _session: &mut Session,
+    //     upstream_response: &mut ResponseHeader,
+    //     ctx: &mut Self::CTX,
+    // ) -> () {
+    //
+    //     if let Some(cl) = upstream_response.headers.get("content-length") {
+    //         if let Ok(s) = cl.to_str() {
+    //             if let Ok(n) = s.parse::<u64>() {
+    //                 ctx.expected_len = Some(n);
+    //             }
+    //         }
+    //     }
+    //
+    //     for h in &[
+    //         "connection",
+    //         "keep-alive",
+    //         "proxy-connection",
+    //         "transfer-encoding",
+    //         "upgrade",
+    //         "proxy-authenticate",
+    //         "proxy-authorization",
+    //         "te",
+    //         "trailer",
+    //     ] {
+    //         let _ = upstream_response.remove_header(*h);
+    //     }
+    //
+    // }
 
-    fn upstream_response_filter(
-        &self,
-        _session: &mut Session,
-        upstream_response: &mut ResponseHeader,
-        _ctx: &mut Self::CTX,
-    ) -> () {
-        let content_len = upstream_response
-            .headers
-            .get("content-length")
-            .cloned();
-
-        for h in &[
-            "connection",
-            "keep-alive",
-            "proxy-connection",
-            "transfer-encoding",
-            "upgrade",
-            "proxy-authenticate",
-            "proxy-authorization",
-            "te",
-            "trailer",
-        ] {
-            let _ = upstream_response.remove_header(*h);
-        }
-
-        if let Some(len) = content_len {
-           let _ =  upstream_response.insert_header("content-length", len);
-        }
-
-        
-    }
+//     async fn response_filter(
+//         &self,
+//         _session: &mut Session,
+//         upstream_response: &mut ResponseHeader,
+//         ctx: &mut Self::CTX,
+//     ) -> Result<()> {
+//         if let Some(n) = ctx.expected_len {
+//             for h in &["transfer-encoding","connection"] {
+//                 let _ = upstream_response.remove_header(*h);
+//             }
+//             let _ = upstream_response.insert_header("content-length", n.to_string());
+//         }
+//         Ok(())
+//     }
 }
 
 pub fn init_tracing() {
