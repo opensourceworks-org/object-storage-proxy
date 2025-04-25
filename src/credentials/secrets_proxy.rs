@@ -74,7 +74,7 @@ impl SecretsCache {
         match maybe_secret {
             Some(secret) => {
                 if secret.is_expired() {
-                    info!("Token for {} is expired, renewing ...", key);
+                    debug!("Token for {} is expired, renewing ...", key);
                     match bearer_fetcher().await {
                         Ok(iam_response) => {
                             self.insert(
@@ -82,7 +82,7 @@ impl SecretsCache {
                                 iam_response.access_token.clone(),
                                 iam_response.expiration,
                             );
-                            println!("Renewed token for {}", key);
+                            debug!("Renewed token for {}", key);
                             Some(iam_response.access_token)
                         }
                         Err(e) => {
@@ -91,12 +91,12 @@ impl SecretsCache {
                         }
                     }
                 } else {
-                    info!("Using cached token for {}", key);
+                    debug!("Using cached token for {}", key);
                     Some(secret.get_value().to_string())
                 }
             }
             None => {
-                info!("No cached token found for {}, fetching ...", key);
+                debug!("No cached token found for {}, fetching ...", key);
                 match bearer_fetcher().await {
                     Ok(iam_response) => {
                         self.insert(
@@ -104,7 +104,7 @@ impl SecretsCache {
                             iam_response.access_token.clone(),
                             iam_response.expiration,
                         );
-                        info!("Fetched new token for {}", key);
+                        debug!("Fetched new token for {}", key);
                         Some(iam_response.access_token)
                     }
                     Err(e) => {
@@ -130,7 +130,7 @@ pub struct IamResponse {
 }
 
 pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn std::error::Error>> {
-    info!("Fetching bearer token for the API key");
+    debug!("Fetching bearer token for the API key");
     let client = Client::new();
 
     let params = [
@@ -148,7 +148,7 @@ pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn s
 
     if resp.status().is_success() {
         let iam_response: IamResponse = resp.json().await?;
-        info!("Received access token");
+        debug!("Received access token");
         Ok(iam_response)
     } else {
         let err_text = resp.text().await?;

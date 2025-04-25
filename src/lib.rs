@@ -293,7 +293,7 @@ impl ProxyHttp for MyProxy {
                 ));
             }
         }
-        info!("request_filter::Credentials checked for bucket: {}. End of function.", hdr_bucket);
+        debug!("request_filter::Credentials checked for bucket: {}. End of function.", hdr_bucket);
         debug!("request_filter::end");
         Ok(false)
     }
@@ -306,7 +306,7 @@ impl ProxyHttp for MyProxy {
         debug!("upstream_peer::start");
         if REQ_COUNTER_ENABLED.load(Ordering::Relaxed) {
             let new_val = REQ_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
-            info!("Request count: {}", new_val);
+            debug!("Request count: {}", new_val);
         }
 
         let path = session.req_header().uri.path();
@@ -429,17 +429,17 @@ impl ProxyHttp for MyProxy {
         }
 
         if maybe_hmac {
-            info!("HMAC: Signing request for bucket: {}", hdr_bucket);
+            debug!("HMAC: Signing request for bucket: {}", hdr_bucket);
             sign_request(upstream_request, bucket_config.as_ref().unwrap())
                 .await
                 .map_err(|e| {
                     error!("Failed to sign request for {}: {e}", hdr_bucket);
                     pingora::Error::new_str("Failed to sign request")
                 })?;
-            info!("Request signed for bucket: {}", hdr_bucket);
+            debug!("Request signed for bucket: {}", hdr_bucket);
             debug!("{:#?}", &upstream_request.headers);
         } else {
-            info!("Using API key for bucket: {}", hdr_bucket);
+            debug!("Using API key for bucket: {}", hdr_bucket);
             let api_key = match maybe_api_key {
                 Some(key) => key,
                 None => {
@@ -465,9 +465,9 @@ impl ProxyHttp for MyProxy {
             upstream_request.insert_header("Authorization", format!("Bearer {bearer_token}"))?;
         }
 
-        info!("Sending request to upstream: {}", &new_uri);
+        debug!("Sending request to upstream: {}", &new_uri);
 
-        info!("Request sent to upstream.");
+        debug!("Request sent to upstream.");
         debug!("upstream_request_filter::end");
 
         Ok(())

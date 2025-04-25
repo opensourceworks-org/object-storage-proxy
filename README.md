@@ -9,7 +9,7 @@
 
 ## Introduction
 
-A fast and safe reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets and integrate your Authentication and Authorization services.
+A fast and safe in-process reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets and integrate your Authentication and Authorization services.
 
 - [x] Takes a Python authorization callable function (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
 - [x] The validation is cached with optional ttl (default 5min, keep it short). 
@@ -314,5 +314,5 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [x] config for #threads in ProxyServerConfig
 - [ ] also pass path and method to python callbacks and cache by token/bucket/path/method (identity based access/cache)
 - [x] option to disable upstream/peer certificate validation (for development, not production!)
-- [ ] expose proxy server and services configuration to python
-- [ ] option to drop proxy headers (x-forwarded-proto, x-forwarded-host, ..)
+- [ ] expose pingora proxy server and services configuration to python
+- [x] drop proxy headers (x-forwarded-proto, x-forwarded-host, ..) for signing

@@ -50,11 +50,11 @@ impl AuthCache {
             map.get(key).cloned()
         } {
             if Instant::now() < entry.expires_at {
-                info!("Cache hit for key.");
+                debug!("Cache hit for key.");
                 return Ok(entry.authorized);
             }
         }
-        info!("Cache miss for key. Validating authorization...");
+        debug!("Cache miss for key. Validating authorization...");
         let key_lock = {
             let mut locks_map = self.locks.lock().await;
             locks_map
@@ -85,7 +85,7 @@ impl AuthCache {
                 },
             );
         }
-        info!("Authorization cache updated for key.");
+        debug!("Authorization cache updated for key.");
         Ok(decision)
     }
 
