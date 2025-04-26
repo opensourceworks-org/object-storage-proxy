@@ -1,7 +1,7 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use http::header::HeaderMap;
 use pingora::{http::RequestHeader, proxy::Session};
-use rustls::crypto::hash::Hash;
+use rustls::crypto::{aws_lc_rs::sign, hash::Hash};
 use sha256::digest;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
@@ -94,6 +94,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         body: &'a B,
         signed_headers: Option<&'a Vec<String>>,
     ) -> Self {
+
 
         let allowed: Vec<&str> = if let Some(sh) = signed_headers {
             sh.iter().map(String::as_str).collect()
@@ -220,14 +221,16 @@ where
         let signature = hex::encode(tag.as_ref());
         let signed_headers = self.signed_header_string();
 
-        format!(
+        let sign_string = format!(
             "AWS4-HMAC-SHA256 Credential={access_key}/{scope},\
              SignedHeaders={signed_headers},Signature={signature}",
             access_key = self.access_key,
             scope = scope_string(self.datetime, self.region, self.service),
             signed_headers = signed_headers,
             signature = signature
-        )
+        );
+        info!("sign_string: {}", sign_string);
+        sign_string
     }
 }
 
@@ -388,22 +391,168 @@ pub(crate) async fn sign_request(
 
 
 /// Validate the signature of the request
-pub async fn signature_is_valid(
+// pub async fn signature_is_valid(
+//     auth_header: &str,
+//     session: &Session,
+//     secret_key: &str,
+// ) -> Result<bool, Box<dyn std::error::Error>> {
+
+//     let signed_headers_str = auth_header
+//         .split("SignedHeaders=")
+//         .nth(1)
+//         .and_then(|s| s.split(',').next())
+//         .unwrap_or("");
+//     let signed_headers: Vec<String> =
+//         signed_headers_str.split(';').map(|s| s.to_lowercase()).collect();
+
+
+//     // extract access key from Authorization header
+//     let (_, local_access_key) = parse_token_from_header(auth_header)
+//         .map_err(|_| pingora::Error::new_str("Failed to parse token"))?;
+//     let local_access_key = local_access_key.to_string();
+//     if local_access_key.is_empty() {
+//         error!("Missing access key");
+//         return Ok(false);
+//     }
+
+//     // extract provided signature
+//     let provided_signature = auth_header
+//         .split("Signature=")
+//         .nth(1)
+//         .ok_or_else(|| pingora::Error::new_str("Invalid Authorization header: no Signature"))?
+//         .to_string();
+
+//     // parse x-amz-date header
+//     let dt_header = session
+//         .req_header()
+//         .headers
+//         .get("x-amz-date")
+//         .ok_or_else(|| pingora::Error::new_str("Missing x-amz-date header"))?
+//         .to_str()?;
+
+//     // use NaiveDateTime then assign Utc timezone (format: %Y%m%dT%H%M%SZ)
+//     let naive = NaiveDateTime::parse_from_str(dt_header, LONG_DATETIME)
+//         .map_err(|_| {
+//             pingora::Error::new_str("invalid date")
+//         })?;
+//     let datetime = naive.and_utc();
+
+
+//     info!("parsing the region and service");
+
+//     let (_, (region, service)) = parse_credential_scope(auth_header)
+//         .map_err(|_| pingora::Error::new_str("Invalid Credential scope"))?;
+
+//     dbg!(&region);
+//     dbg!(&service);
+
+//     // determine payload hash header
+//     let content_sha256 = session
+//         .req_header()
+//         .headers
+//         .get("x-amz-content-sha256")
+//         .and_then(|h| h.to_str().ok())
+//         .ok_or_else(|| pingora::Error::new_str("Missing x-amz-content-sha256 header"))?;
+
+
+//     let (body_bytes, payload_override) = if content_sha256 == "UNSIGNED-PAYLOAD" {
+//         (b"UNSIGNED-PAYLOAD" as &[u8], None)
+//     } else {
+//         // we don't have the raw body here, but we do have its hash:
+//         // tell AwsSign to use this string directly
+//         (&[] as &[u8], Some(content_sha256.to_owned()))
+//     };
+
+//     let original_uri = session.req_header().uri.to_string();
+//     let full_url = if original_uri.starts_with('/') {
+//         let host = session
+//             .req_header()
+//             .headers
+//             .get("host")
+//             .ok_or_else(|| pingora::Error::new_str("Missing host header"))?
+//             .to_str()?;
+//         format!("https://{}{}", host, original_uri)
+//     } else {
+//         original_uri
+//     };
+
+//     // construct AwsSign and compute signature
+//     let method = session.req_header().method.to_string();
+//     let mut signer = AwsSign::new(
+//         &method,
+//         &full_url,
+//         &datetime,
+//         &session.req_header().headers,
+//         region,
+//         &local_access_key,
+//         &secret_key,
+//         service,
+//         body_bytes,
+//         Some(&signed_headers),
+//     );
+
+//     if let Some(ov) = payload_override {
+//         signer.set_payload_override(ov);
+//     }
+
+//     let signature = signer.sign();
+//     let computed_signature = signature
+//         .split("Signature=")
+//         .nth(1)
+//         .unwrap_or_default();
+
+//     info!("Provided signature: {}", provided_signature);
+//     info!("Computed signature: {}", computed_signature);
+//     Ok(computed_signature == provided_signature)
+// }
+
+/// Core signature validation: compares provided vs computed
+async fn signature_is_valid_core(
+    method: &str,
+    provided_signature: &str,
+    region: &str,
+    service: &str,
+    datetime: DateTime<Utc>,
+    full_url: &str,
+    headers: &HeaderMap,
+    payload_override: Option<String>,
+    access_key: &str,
+    secret_key: &str,
+    signed_headers: &Vec<String>,
+    body_bytes: &[u8],
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // Build AwsSign for authorization header style
+    dbg!(&headers);
+    let mut signer = AwsSign::new(
+        method,
+        full_url,
+        &datetime,
+        headers,
+        region,
+        access_key,
+        secret_key,
+        service,
+        body_bytes,
+        Some(&signed_headers),
+    );
+    if let Some(ov) = payload_override {
+        signer.set_payload_override(ov);
+    }
+    let signature = signer.sign();
+    let computed = signature.split("Signature=").nth(1).unwrap_or_default();
+    info!("Provided signature: {}", provided_signature);
+    info!("Computed signature: {}", computed);
+    Ok(computed == provided_signature)
+}
+
+/// Validate standard S3 Authorization header
+pub async fn signature_is_valid_for_request(
     auth_header: &str,
     session: &Session,
     secret_key: &str,
 ) -> Result<bool, Box<dyn std::error::Error>> {
 
-    let signed_headers_str = auth_header
-        .split("SignedHeaders=")
-        .nth(1)
-        .and_then(|s| s.split(',').next())
-        .unwrap_or("");
-    let signed_headers: Vec<String> =
-        signed_headers_str.split(';').map(|s| s.to_lowercase()).collect();
-
-
-    // extract access key from Authorization header
+    
     let (_, local_access_key) = parse_token_from_header(auth_header)
         .map_err(|_| pingora::Error::new_str("Failed to parse token"))?;
     let local_access_key = local_access_key.to_string();
@@ -411,46 +560,26 @@ pub async fn signature_is_valid(
         error!("Missing access key");
         return Ok(false);
     }
-
-    // extract provided signature
     let provided_signature = auth_header
         .split("Signature=")
         .nth(1)
-        .ok_or_else(|| pingora::Error::new_str("Invalid Authorization header: no Signature"))?
-        .to_string();
-
-    // parse x-amz-date header
-    let dt_header = session
-        .req_header()
-        .headers
-        .get("x-amz-date")
-        .ok_or_else(|| pingora::Error::new_str("Missing x-amz-date header"))?
-        .to_str()?;
-
-    // use NaiveDateTime then assign Utc timezone (format: %Y%m%dT%H%M%SZ)
-    let naive = NaiveDateTime::parse_from_str(dt_header, LONG_DATETIME)
-        .map_err(|_| {
-            pingora::Error::new_str("invalid date")
-        })?;
-    let datetime = naive.and_utc();
-
-
-    info!("parsing the region and service");
+        .ok_or("Missing Signature")?;
 
     let (_, (region, service)) = parse_credential_scope(auth_header)
         .map_err(|_| pingora::Error::new_str("Invalid Credential scope"))?;
 
-    dbg!(&region);
-    dbg!(&service);
+    let method = session.req_header().method.to_string();
+    // Parse date header
+    let dt_header = session.req_header().headers.get("x-amz-date").unwrap().to_str()?;
+    let datetime = NaiveDateTime::parse_from_str(dt_header, LONG_DATETIME)?.and_utc();
 
-    // determine payload hash header
+
     let content_sha256 = session
         .req_header()
         .headers
         .get("x-amz-content-sha256")
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| pingora::Error::new_str("Missing x-amz-content-sha256 header"))?;
-
 
     let (body_bytes, payload_override) = if content_sha256 == "UNSIGNED-PAYLOAD" {
         (b"UNSIGNED-PAYLOAD" as &[u8], None)
@@ -460,6 +589,7 @@ pub async fn signature_is_valid(
         (&[] as &[u8], Some(content_sha256.to_owned()))
     };
 
+    // Build full URL
     let original_uri = session.req_header().uri.to_string();
     let full_url = if original_uri.starts_with('/') {
         let host = session
@@ -473,36 +603,177 @@ pub async fn signature_is_valid(
         original_uri
     };
 
-    // construct AwsSign and compute signature
-    let method = session.req_header().method.to_string();
-    let mut signer = AwsSign::new(
-        &method,
-        &full_url,
-        &datetime,
-        &session.req_header().headers,
-        region,
-        &local_access_key,
-        &secret_key,
-        service,
-        body_bytes,
-        Some(&signed_headers),
-    );
-
-    if let Some(ov) = payload_override {
-        signer.set_payload_override(ov);
-    }
-
-    let signature = signer.sign();
-    let computed_signature = signature
-        .split("Signature=")
+    // Signed headers list
+    let signed_headers_str = auth_header
+        .split("SignedHeaders=")
         .nth(1)
-        .unwrap_or_default();
+        .unwrap()
+        .split(',')
+        .next()
+        .unwrap();
 
-    info!("Provided signature: {}", provided_signature);
-    info!("Computed signature: {}", computed_signature);
-    Ok(computed_signature == provided_signature)
+    let signed_headers: Vec<String> = signed_headers_str.split(';').map(str::to_string).collect();
+
+    signature_is_valid_core(
+        &method,
+        provided_signature,
+        region,
+        service,
+        datetime,
+        &full_url,
+        &session.req_header().headers,
+        payload_override,
+        &local_access_key,
+        secret_key,
+        &signed_headers,
+        body_bytes,
+    )
+    .await
 }
 
+
+/// Validate presigned URL signature
+pub async fn signature_is_valid_for_presigned(
+    session: &Session,
+    secret_key: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // Extract query params from the URL
+
+    let uri = session.req_header().uri.to_string();
+    let full_uri = if uri.starts_with('/') {
+        // build an absolute URL: scheme://host + path?query
+        let host = session
+            .req_header()
+            .headers
+            .get("host")
+            .ok_or("Missing host header")?
+            .to_str()?;
+        format!("https://{}{}", host, uri)
+    } else {
+        uri
+    };
+
+    
+    let mut url = Url::parse(&full_uri)?; 
+    info!("full_url: {}", url);
+    let mut provided_signature = None;
+    let mut qp: Vec<(String,String)> = vec![];
+    for (k, v) in url.query_pairs() {
+        if k == "X-Amz-Signature" {
+            provided_signature = Some(v.into_owned());
+        } else {
+            qp.push((k.into_owned(), v.into_owned()));
+        }
+    }
+    let provided_signature = provided_signature.ok_or("Missing X-Amz-Signature")?;
+    // ----------------------------------------------------------------------
+    
+    // rebuild query string without the signature
+    qp.sort();
+    let new_query = qp.iter()
+                      .map(|(k,v)| format!("{k}={v}"))
+                      .collect::<Vec<_>>()
+                      .join("&");
+    url.set_query(Some(&new_query));
+    
+    // params map (also without the signature)
+    let params: HashMap<_, _> = qp.into_iter().collect();
+    info!("params: {:?}", params);
+    info!("url: {:?}", url);
+
+    // Required signature and credential
+    // let provided_signature = params
+    //     .get("X-Amz-Signature")
+    //     .ok_or("Missing X-Amz-Signature")?;
+    info!("provided signature: {}", provided_signature);
+    let credential = params
+        .get("X-Amz-Credential")
+        .ok_or("Missing X-Amz-Credential")?;
+
+    info!("credential: {}", credential);
+
+    // Parse credential: <access_key>/<date>/<region>/<service>/aws4_request
+    let mut parts = credential.split('/');
+    let access_key = parts.next().ok_or("Malformed Credential")?;
+    let _credential_date = parts.next().ok_or("Malformed Credential")?;
+    let region = parts.next().ok_or("Malformed Credential")?;
+    let service = parts.next().ok_or("Malformed Credential")?;
+
+    info!("access_key: {}", access_key);
+    info!("region: {}", region);
+    info!("service: {}", service);
+
+    // Parse date from query
+    let date_str = params
+        .get("X-Amz-Date")
+        .ok_or("Missing X-Amz-Date")?;
+    let datetime = NaiveDateTime::parse_from_str(date_str, LONG_DATETIME)?.and_utc();
+
+    info!("datetime: {}", datetime);
+
+    // // Determine payload override
+    // let payload_override = params
+    //     .get("X-Amz-Content-Sha256")
+    //     .filter(|v| *v != "UNSIGNED-PAYLOAD")
+    //     .map(|v| v.to_string());
+    // info!("payload_override: {:?}", payload_override);
+    // let body_bytes: &[u8] = if params.get("X-Amz-Content-Sha256")
+    //     == Some(&"UNSIGNED-PAYLOAD".to_string()) {
+    //     b"UNSIGNED-PAYLOAD"
+    // } else {
+    //     &[]
+    // };
+
+    let body_bytes: &[u8] = b"UNSIGNED-PAYLOAD";
+    let payload_override = None;  
+
+    info!("body_bytes: {:?}", body_bytes);
+
+    // Collect signed headers list
+    let signed_headers = params
+        .get("X-Amz-SignedHeaders")
+        .unwrap()
+        .split(';')
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    let mut signed_hdrs = HeaderMap::new();
+
+    let host_header = match url.port_or_known_default() {
+        Some(443) | Some(80) | None => url.host_str().unwrap().to_owned(),
+        Some(p)                    => format!("{}:{}", url.host_str().unwrap(), p),
+    };
+
+    signed_hdrs.insert("host", host_header.parse()?);
+    
+    // copy any additional headers that appear in X-Amz-SignedHeaders (rare)
+    for h in &["x-amz-date", "x-amz-content-sha256", "range", "x-amz-security-token"] {
+        if signed_headers.contains(&h.to_string()) {
+            if let Some(v) = session.req_header().headers.get(*h) {
+                signed_hdrs.insert(*h, v.clone());
+            }
+        }
+    }
+
+
+
+    info!("signed_headers: {:?}", signed_headers);
+    // Delegate to core validator
+    signature_is_valid_core(
+        session.req_header().method.as_str(),
+        &provided_signature,
+        region,
+        service,
+        datetime,
+        url.as_str(),
+        &signed_hdrs,
+        payload_override,
+        access_key,
+        secret_key,
+        &signed_headers,
+        body_bytes,
+    ).await
+}
 
 #[cfg(test)]
 mod tests {
@@ -696,4 +967,5 @@ mod tests {
         let qs = canonical_query_string(&parsed);
         assert_eq!(qs, "a=1%20space&b=2");
     }
+    
 }

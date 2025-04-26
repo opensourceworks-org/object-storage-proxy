@@ -33,6 +33,7 @@ sha256 = "1.6.0"
 ring = "0.17.14"
 hex = "0.4.3"
 regex = "1.11.1"
+percent-encoding = "2.3.1"
 
 # [build-dependencies]
 # openssl-sys = { version = "0.9", features = ["vendored"] }
