@@ -1,11 +1,9 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use http::header::HeaderMap;
 use pingora::{http::RequestHeader, proxy::Session};
-use rustls::crypto::{aws_lc_rs::sign, hash::Hash};
 use sha256::digest;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info};
-use std::{collections::{HashMap, HashSet}, fmt, sync::Arc};
+use std::{collections::HashMap, fmt};
 use url::Url;
 
 use crate::parsers::{cos_map::CosMapItem, credentials::{parse_credential_scope, parse_token_from_header}};

@@ -6,6 +6,7 @@ use http::Uri;
 use http::uri::Authority;
 use parsers::cos_map::{CosMapItem, parse_cos_map};
 use parsers::keystore::parse_hmac_list;
+use pingora::http::ResponseHeader;
 use pingora::Result;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
@@ -28,7 +29,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
 
 pub mod parsers;
-use parsers::credentials::{parse_credential_scope, parse_presigned_params, parse_token_from_header};
+use parsers::credentials::{parse_presigned_params, parse_token_from_header};
 use parsers::path::parse_path;
 
 pub mod credentials;
@@ -197,6 +198,7 @@ pub struct MyCtx {
     validator: Option<PyObject>,
     bucket_creds_fetcher: Option<PyObject>,
     hmac_fetcher: Option<PyObject>,
+    is_presigned: Option<bool>,
     
 }
 
@@ -221,6 +223,7 @@ impl ProxyHttp for MyProxy {
                 .hmac_fetcher
                 .as_ref()
                 .map(|v| Python::with_gil(|py| v.clone_ref(py))),
+            is_presigned: None,
         }
     }
 
@@ -339,6 +342,7 @@ impl ProxyHttp for MyProxy {
 
                     if auth_header.is_empty() && uri_q.contains("X-Amz-Signature") {
                         let full_q = format!("?{uri_q}");
+                        ctx.is_presigned = Some(true);
                         let (_, presigned_params) = parse_presigned_params(&full_q)
                             .map_err(|_| pingora::Error::new_str("Failed to parse presigned params"))?;
                         access_key = presigned_params.access_key.clone();
@@ -458,14 +462,15 @@ impl ProxyHttp for MyProxy {
                 }
             }
             info!("Signature check passed, continuing now onto the bespoke validation");
-            let cache_key = format!("{}:{}", access_key, bucket);
+            let cache_key = format!("{}:{}", &access_key, bucket);
+            info!("Cache key: {}", cache_key);
 
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
-
+            let move_access_key = access_key.clone();
             ctx.auth_cache
                 .get_or_validate(&cache_key, Duration::from_secs(ttl), move || {
-                    let tk = access_key.clone();
+                    let tk = move_access_key.clone();
                     let bu = bucket_clone.clone();
                     let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
                     async move {
@@ -489,10 +494,11 @@ impl ProxyHttp for MyProxy {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
-        access_key = parse_token_from_header(&auth_header)
-            .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
-            .1
-            .to_string();
+        // access_key = parse_token_from_header(&auth_header)
+        //     .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
+        //     .1
+        //     .to_string();
+        info!("Access key: {}", &access_key);
 
         // we have to check for some available credentials here to be able to return unauthorized already if not
         match bucket_config.clone() {
@@ -538,6 +544,31 @@ impl ProxyHttp for MyProxy {
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
+
+        if let Some(presigned) = ctx.is_presigned {
+            if presigned {
+                debug!("upstream_request_filter::presigned");
+                let cleaned_q = upstream_request
+                    .uri
+                    .query()
+                    .unwrap_or("")
+                    .split('&')
+                    .filter(|kv| !kv.starts_with("X-Amz-"))
+                    .collect::<Vec<_>>()
+                    .join("&");
+
+            let _ = upstream_request.remove_header("authorization");
+        
+            let new_path_and_query = if cleaned_q.is_empty() {
+                upstream_request.uri.path().to_owned()
+            } else {
+                format!("{}?{}", upstream_request.uri.path(), cleaned_q)
+            };
+        
+            upstream_request.set_uri(new_path_and_query.try_into().unwrap());
+ 
+            }
+        };
 
         let _ = upstream_request.remove_header("accept-encoding");
 
@@ -649,6 +680,19 @@ impl ProxyHttp for MyProxy {
 
         debug!("Request sent to upstream.");
         debug!("upstream_request_filter::end");
+
+        Ok(())
+    }
+
+    async fn response_filter(
+        &self,
+        _session: &mut Session,
+        resp: &mut ResponseHeader,
+        _ctx: &mut Self::CTX,
+    ) -> Result<()> {
+        let _ = resp.remove_header("server");
+
+        let _ = resp.insert_header("Server", "Object-Storage-Proxy");
 
         Ok(())
     }

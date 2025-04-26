@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pyo3::{exceptions, prelude::*, types::{PyDict, PyList}};
+use pyo3::{exceptions, prelude::*};
 
 
 pub fn parse_hmac_list(

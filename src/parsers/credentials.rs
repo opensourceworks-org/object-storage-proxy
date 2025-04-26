@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nom::{
-    bytes::complete::{tag, take_until, take_while1}, multi::separated_list1, sequence::{preceded, separated_pair, tuple}, IResult, Parser
+    bytes::complete::{tag, take_until, take_while1}, multi::separated_list1, sequence::{preceded, separated_pair}, IResult, Parser
 };
 
 use nom::character::complete::char as nomchar;
