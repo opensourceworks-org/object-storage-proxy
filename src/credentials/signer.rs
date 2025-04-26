@@ -62,6 +62,25 @@ where
     body: &'a [u8],
 }
 
+/// Create a new AwsSign instance
+/// 
+/// # Arguments
+/// 
+/// * `method` - HTTP method (GET, POST, etc.)
+/// * `url` - URL to sign
+/// * `datetime` - Date and time of the request
+/// * `headers` - HTTP headers
+/// * `region` - AWS region
+/// * `access_key` - AWS access key
+/// * `secret_key` - AWS secret key
+/// * `service` - AWS service code
+/// * `body` - Request body
+/// * `signed_headers` - Optional list of signed headers, used to check inbound request signature
+/// 
+/// # Returns
+/// 
+/// A new instance of `AwsSign`
+/// 
 impl<'a> AwsSign<'a, HashMap<String, String>> {
     pub fn new<B: AsRef<[u8]> + ?Sized>(
         method: &'a str,
@@ -75,6 +94,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         body: &'a B,
         signed_headers: Option<&'a Vec<String>>,
     ) -> Self {
+
         let allowed: Vec<&str> = if let Some(sh) = signed_headers {
             sh.iter().map(String::as_str).collect()
         } else {
@@ -86,13 +106,6 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
                 "x-amz-security-token",
             ]
         };
-        // let allowed = [
-        //     "host",
-        //     "x-amz-date",
-        //     "range",
-        //     "x-amz-content-sha256",
-        //     "x-amz-security-token",
-        // ];
         
         dbg!(&url);
         let url: Url = url.parse().unwrap();
@@ -124,6 +137,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
     }
 }
 
+
 /// custom debug implementation to redact secret_key
 impl<'a, T> fmt::Debug for AwsSign<'a, T>
 where
@@ -140,6 +154,7 @@ where
             .field("service", &self.service)
             .field("body", &self.body)
             .field("headers", &self.headers)
+            .field("payload_override", &self.payload_override)
             .finish()
     }
 }
@@ -148,6 +163,10 @@ impl<'a, T> AwsSign<'a, T>
 where
     &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
 {
+    /// for streaming uploads, we need to override the payload hash
+    /// with the actual payload hash
+    /// this is used for the `UNSIGNED-PAYLOAD` case
+    /// and for the `payload_override` case
     pub fn set_payload_override(&mut self, h: String) {
         self.payload_override = Some(h);
     }
@@ -290,6 +309,14 @@ pub fn signing_key(
     Ok(signing_tag.as_ref().to_vec())
 }
 
+
+/// Sign the request with the AWS V4 signature
+/// # Arguments
+/// * `request` - The request to sign
+/// * `cos_map` - The COS map item containing the credentials
+/// # Returns
+/// * `Ok(())` if the request was signed successfully
+/// * `Err` if there was an error signing the request
 pub(crate) async fn sign_request(
     request: &mut RequestHeader,
     cos_map: &CosMapItem,
@@ -360,6 +387,7 @@ pub(crate) async fn sign_request(
 }
 
 
+/// Validate the signature of the request
 pub async fn signature_is_valid(
     auth_header: &str,
     session: &Session,
@@ -422,10 +450,7 @@ pub async fn signature_is_valid(
         .get("x-amz-content-sha256")
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| pingora::Error::new_str("Missing x-amz-content-sha256 header"))?;
-    // let body_bytes: &[u8] = match content_sha256 {
-    //     "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
-    //     _ => &[],
-    // };
+
 
     let (body_bytes, payload_override) = if content_sha256 == "UNSIGNED-PAYLOAD" {
         (b"UNSIGNED-PAYLOAD" as &[u8], None)
