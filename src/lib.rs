@@ -1,9 +1,11 @@
 #![warn(clippy::all)]
 use async_trait::async_trait;
+use credentials::signer::signature_is_valid;
 use dotenv::dotenv;
 use http::Uri;
 use http::uri::Authority;
 use parsers::cos_map::{CosMapItem, parse_cos_map};
+use parsers::keystore::parse_hmac_list;
 use pingora::Result;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
@@ -94,6 +96,15 @@ pub struct ProxyServerConfig {
 
     #[pyo3(get, set)]
     pub verify: Option<bool>,
+
+    #[pyo3(get, set)]
+    pub hmac_keystore: PyObject,
+
+    #[pyo3(get, set)]
+    pub skip_signature_validation: Option<bool>,
+
+   #[pyo3(get, set)]
+   pub hmac_fetcher: Option<Py<PyAny>>
 }
 
 impl Default for ProxyServerConfig {
@@ -106,6 +117,9 @@ impl Default for ProxyServerConfig {
             validator: None,
             threads: Some(1),
             verify: None,
+            hmac_keystore: Python::with_gil(|py| py.None()),
+            skip_signature_validation: Some(false),
+            hmac_fetcher: None,
         }
     }
 }
@@ -116,31 +130,40 @@ impl ProxyServerConfig {
     #[pyo3(
         signature = (
             cos_map,
+            hmac_keystore = None,
             bucket_creds_fetcher = None,
             http_port = None,
             https_port = None,
             validator = None,
             threads = Some(1),
             verify = None,
+            skip_signature_validation = Some(false),
+            hmac_fetcher = None,
         )
     )]
     pub fn new(
         cos_map: PyObject,
+        hmac_keystore: Option<PyObject>,
         bucket_creds_fetcher: Option<PyObject>,
         http_port: Option<u16>,
         https_port: Option<u16>,
         validator: Option<PyObject>,
         threads: Option<usize>,
         verify: Option<bool>,
+        skip_signature_validation: Option<bool>,
+        hmac_fetcher: Option<PyObject>,
     ) -> Self {
         ProxyServerConfig {
             cos_map,
+            hmac_keystore: hmac_keystore.unwrap_or_else(|| Python::with_gil(|py| py.None())),
             bucket_creds_fetcher,
             http_port,
             https_port,
             validator,
             threads,
             verify,
+            skip_signature_validation,
+            hmac_fetcher,
         }
     }
 
@@ -155,19 +178,26 @@ impl ProxyServerConfig {
 pub struct MyProxy {
     cos_endpoint: String,
     cos_mapping: Arc<RwLock<HashMap<String, CosMapItem>>>,
+    hmac_keystore: Arc<RwLock<HashMap<String, String>>>,
     secrets_cache: SecretsCache,
     auth_cache: AuthCache,
     validator: Option<PyObject>,
     bucket_creds_fetcher: Option<PyObject>,
     verify: Option<bool>,
+    skip_signature_validation: Option<bool>,
+    hmac_fetcher: Option<PyObject>,
+
 }
 
 pub struct MyCtx {
     cos_mapping: Arc<RwLock<HashMap<String, CosMapItem>>>,
+    hmac_keystore: Arc<RwLock<HashMap<String, String>>>,
     secrets_cache: SecretsCache,
     auth_cache: AuthCache,
     validator: Option<PyObject>,
     bucket_creds_fetcher: Option<PyObject>,
+    hmac_fetcher: Option<PyObject>,
+    
 }
 
 #[async_trait]
@@ -176,6 +206,7 @@ impl ProxyHttp for MyProxy {
     fn new_ctx(&self) -> Self::CTX {
         MyCtx {
             cos_mapping: Arc::clone(&self.cos_mapping),
+            hmac_keystore: Arc::clone(&self.hmac_keystore),
             secrets_cache: self.secrets_cache.clone(),
             auth_cache: self.auth_cache.clone(),
             validator: self
@@ -184,6 +215,10 @@ impl ProxyHttp for MyProxy {
                 .map(|v| Python::with_gil(|py| v.clone_ref(py))),
             bucket_creds_fetcher: self
                 .bucket_creds_fetcher
+                .as_ref()
+                .map(|v| Python::with_gil(|py| v.clone_ref(py))),
+            hmac_fetcher: self
+                .hmac_fetcher
                 .as_ref()
                 .map(|v| Python::with_gil(|py| v.clone_ref(py))),
         }
@@ -250,6 +285,8 @@ impl ProxyHttp for MyProxy {
 
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
+
+
         let path = session.req_header().uri.path();
 
         let parse_path_result = parse_path(path);
@@ -276,18 +313,93 @@ impl ProxyHttp for MyProxy {
         };
 
         let is_authorized = if let Some(py_cb) = &ctx.validator {
-            let token = parse_token_from_header(&auth_header)
-                .map_err(|_| pingora::Error::new_str("Failed to parse token"))?
+            let access_key = parse_token_from_header(&auth_header)
+                .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
                 .1
                 .to_string();
-            let cache_key = format!("{}:{}", token, bucket);
+
+                let is_multipart = session
+                    .req_header()
+                    .uri
+                    .query()
+                    .map_or(false, |q| q.contains("uploadId="));
+
+
+
+            info!("CHECKING SIGNATURE");
+            if let Some(skip) = self.skip_signature_validation {
+                if skip || is_multipart {
+                    info!("Skipping local signature check");
+                    // continue
+                    
+                } else {
+                    let has_key = {
+                        let map = ctx.hmac_keystore.read().await;
+                        map.contains_key(&access_key)
+                    };
+                    if !has_key {
+                        if let Some(py_fetcher) = &ctx.hmac_fetcher {
+                            // call Python callback
+                            let cb = py_fetcher;
+                            let secret: PyResult<String> = Python::with_gil(|py| {
+                                cb.call1(py, (&access_key,))
+                                  .and_then(|r| r.extract(py))
+                            });
+                            match secret {
+                                Ok(secret_key) => {
+                                    ctx.hmac_keystore.write().await.insert(access_key.clone().to_string(), secret_key);
+                                }
+                                Err(_) => {
+                                    // no key → unauthorized
+                                    session.respond_error(401).await?;
+                                    return Ok(true);
+                                }
+                            }
+                        } else {
+                            session.respond_error(401).await?;
+                            return Ok(true);
+                        }
+                    }
+                    let secret_key = {
+                                            let map = ctx.hmac_keystore.read().await;
+                                            map.get(&access_key).cloned()
+                                        };
+
+                    info!("Checking signature");
+                     let sig_ok = match signature_is_valid(
+                         &auth_header,
+                         &session,
+                         &secret_key.unwrap(),
+                     )
+                     .await
+                     {
+                         Ok(true)  => true, 
+                         Ok(false) => {
+                             info!("Signature invalid");
+                             false 
+                         }
+                         Err(err)  => {
+                             error!("Signature check error: {}", err);
+                             false
+                         }
+                     };
+                     
+                     // if signature failed, skip further validation
+                     if !sig_ok {
+                         session.respond_error(401).await?;
+                         return Ok(true);
+                     }
+                }
+            }
+
+            let cache_key = format!("{}:{}", access_key, bucket);
 
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
 
             ctx.auth_cache
                 .get_or_validate(&cache_key, Duration::from_secs(ttl), move || {
-                    let tk = token.clone();
+                    let tk = access_key.clone();
                     let bu = bucket_clone.clone();
                     let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
                     async move {
@@ -311,8 +423,8 @@ impl ProxyHttp for MyProxy {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
-        let token = parse_token_from_header(&auth_header)
-            .map_err(|_| pingora::Error::new_str("Failed to parse token"))?
+        let access_key = parse_token_from_header(&auth_header)
+            .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
             .1
             .to_string();
 
@@ -323,7 +435,7 @@ impl ProxyHttp for MyProxy {
                     // clone the PyObject so the async block is 'static
                     let cb = Python::with_gil(|py| py_cb.clone_ref(py));
                     move |bucket: String| async move {
-                        get_credential_for_bucket(&cb, bucket, token)
+                        get_credential_for_bucket(&cb, bucket, access_key)
                             .await
                             .map_err(|e| e.into()) // Convert PyErr → Box<dyn Error>
                     }
@@ -500,18 +612,29 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         info!("starting HTTPS server on port {}", https_port);
     }
 
+    let local_hmac_map = if Python::with_gil(|py| run_args.hmac_keystore.is_none(py)) {
+        HashMap::new()
+    } else {
+        parse_hmac_list(py, &run_args.hmac_keystore).unwrap_or(HashMap::new())
+    };
+
+    info!("HMAC keys: {:#?}", &local_hmac_map);
+
     let cosmap = Arc::new(RwLock::new(parse_cos_map(py, &run_args.cos_map).unwrap()));
+    let hmac_keystore = Arc::new(RwLock::new(local_hmac_map));
 
     let mut my_server = Server::new(None).unwrap();
     my_server.bootstrap();
 
     let validator = run_args.validator.as_ref().map(|v| v.clone_ref(py));
+    let hmac_fetcher = run_args.hmac_fetcher.as_ref().map(|v| v.clone_ref(py));
 
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,
         MyProxy {
-            cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(), // a default COS endpoint, as good as any
+            cos_endpoint: "s3.eu-de.cloud-object-storage.appdomain.cloud".to_string(),
             cos_mapping: Arc::clone(&cosmap),
+            hmac_keystore: Arc::clone(&hmac_keystore),
             secrets_cache: SecretsCache::new(),
             auth_cache: AuthCache::new(),
             validator,
@@ -520,6 +643,8 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
                 .as_ref()
                 .map(|v| v.clone_ref(py)),
             verify: run_args.verify,
+            skip_signature_validation: run_args.skip_signature_validation,
+            hmac_fetcher
         },
     );
 
@@ -580,7 +705,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
 ///   - http_port: The HTTP port to listen on.
 ///   - https_port: The HTTPS port to listen on.
 ///   - validator: Optional Python async callable that validates the request.
-///     The callable should accept two arguments, the token and the bucket name.
+///     The callable should accept two arguments, the access_key and the bucket name.
 ///     It should return a boolean indicating whether the request is valid.
 ///   - threads: Optional number of threads to use for the server.
 ///     If not specified, the server will use a single thread.

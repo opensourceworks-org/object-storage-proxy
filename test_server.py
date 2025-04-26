@@ -46,6 +46,18 @@ def do_hmac_creds(token: str, bucket: str) -> str:
         "secret_key": secret_key
     })
 
+def lookup_secret_key(access_key: str) -> str | None:
+    # get all environment variables ending in ACCESS_KEY
+    access_keys = [{key:value} for key, value in os.environ.items() if key.endswith("ACCESS_KEY") and value==access_key ]
+
+    if len(access_keys) > 0:
+        access_key_var = next((k for k, v in access_keys[0].items() if v == access_key), None)
+
+        secret_key_var = access_key_var.replace("ACCESS_KEY", "SECRET_KEY")
+        return os.getenv(secret_key_var, None)
+    else:
+        print(f"no access keys found for : {access_key}")
+
 
 def do_validation(token: str, bucket: str) -> bool:
     """ Authorize the request based on token for the given bucket. 
@@ -113,6 +125,18 @@ def main() -> None:
         }
     }
 
+    hmac_keys= [
+        # {
+        #     "access_key": os.getenv("LOCAL_ACCESS_KEY"),
+        #     "secret_key": os.getenv("LOCAL_SECRET_KEY")
+        # },
+        {
+            "access_key": os.getenv("LOCAL2_ACCESS_KEY"),
+            "secret_key": os.getenv("LOCAL2_SECRET_KEY")
+        },
+
+    ]
+
     ra = ProxyServerConfig(
         cos_map=cos_map,
         bucket_creds_fetcher=do_hmac_creds,
@@ -120,7 +144,10 @@ def main() -> None:
         http_port=6190,
         # https_port=8443,
         threads=1,
-        verify=False,
+        # verify=False,
+        hmac_keystore=hmac_keys,
+        skip_signature_validation=False,
+        hmac_fetcher=lookup_secret_key
     )
 
     start_server(ra)

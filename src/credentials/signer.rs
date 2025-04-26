@@ -1,17 +1,19 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use http::header::HeaderMap;
-use pingora::http::RequestHeader;
+use pingora::{http::RequestHeader, proxy::Session};
+use rustls::crypto::hash::Hash;
 use sha256::digest;
-use tracing::debug;
-use std::{collections::HashMap, fmt};
+use tokio::sync::RwLock;
+use tracing::{debug, error, info};
+use std::{collections::{HashMap, HashSet}, fmt, sync::Arc};
 use url::Url;
 
-use crate::parsers::cos_map::CosMapItem;
+use crate::parsers::{cos_map::CosMapItem, credentials::{parse_credential_scope, parse_token_from_header}};
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
-// AwsSign copied and slightly modified from https://github.com/psnszsn/aws-sign-v4
+// AwsSign copied and modified from https://github.com/psnszsn/aws-sign-v4
 
 pub struct AwsSign<'a, T: 'a>
 where
@@ -24,6 +26,7 @@ where
     access_key: &'a str,
     secret_key: &'a str,
     headers: T,
+    payload_override: Option<String>,
 
     /*
     service is the <aws-service-code> that can be found in the service-quotas api.
@@ -70,15 +73,28 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         secret_key: &'a str,
         service: &'a str,
         body: &'a B,
+        signed_headers: Option<&'a Vec<String>>,
     ) -> Self {
-        let allowed = [
-            "host",
-            "content-length",
-            "x-amz-date",
-            "x-amz-content-sha256",
-            "x-amz-security-token",
-        ];
-
+        let allowed: Vec<&str> = if let Some(sh) = signed_headers {
+            sh.iter().map(String::as_str).collect()
+        } else {
+            vec![
+                "host",
+                "x-amz-date",
+                "range",
+                "x-amz-content-sha256",
+                "x-amz-security-token",
+            ]
+        };
+        // let allowed = [
+        //     "host",
+        //     "x-amz-date",
+        //     "range",
+        //     "x-amz-content-sha256",
+        //     "x-amz-security-token",
+        // ];
+        
+        dbg!(&url);
         let url: Url = url.parse().unwrap();
         let headers: HashMap<String, String> = headers
             .iter()
@@ -103,6 +119,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
             headers,
             service,
             body: body.as_ref(),
+            payload_override: None,
         }
     }
 }
@@ -131,6 +148,10 @@ impl<'a, T> AwsSign<'a, T>
 where
     &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
 {
+    pub fn set_payload_override(&mut self, h: String) {
+        self.payload_override = Some(h);
+    }
+
     pub fn canonical_header_string(&'a self) -> String {
         let mut keyvalues = self
             .headers
@@ -153,7 +174,9 @@ where
 
     pub fn canonical_request(&'a self) -> String {
         let url: &str = self.url.path().into();
-        let payload_line = if self.body == b"UNSIGNED-PAYLOAD" {
+        let payload_line = if let Some(ov) = &self.payload_override {
+            ov.clone()
+        } else if self.body == b"UNSIGNED-PAYLOAD" {
             "UNSIGNED-PAYLOAD".into()
         } else {
             digest(self.body)
@@ -321,6 +344,7 @@ pub(crate) async fn sign_request(
         secret_key,
         "s3",
         body_bytes,
+        None,
     );
     debug!("{:#?}", &auth_header);
 
@@ -334,6 +358,126 @@ pub(crate) async fn sign_request(
 
     Ok(())
 }
+
+
+pub async fn signature_is_valid(
+    auth_header: &str,
+    session: &Session,
+    secret_key: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+
+    let signed_headers_str = auth_header
+        .split("SignedHeaders=")
+        .nth(1)
+        .and_then(|s| s.split(',').next())
+        .unwrap_or("");
+    let signed_headers: Vec<String> =
+        signed_headers_str.split(';').map(|s| s.to_lowercase()).collect();
+
+
+    // extract access key from Authorization header
+    let (_, local_access_key) = parse_token_from_header(auth_header)
+        .map_err(|_| pingora::Error::new_str("Failed to parse token"))?;
+    let local_access_key = local_access_key.to_string();
+    if local_access_key.is_empty() {
+        error!("Missing access key");
+        return Ok(false);
+    }
+
+    // extract provided signature
+    let provided_signature = auth_header
+        .split("Signature=")
+        .nth(1)
+        .ok_or_else(|| pingora::Error::new_str("Invalid Authorization header: no Signature"))?
+        .to_string();
+
+    // parse x-amz-date header
+    let dt_header = session
+        .req_header()
+        .headers
+        .get("x-amz-date")
+        .ok_or_else(|| pingora::Error::new_str("Missing x-amz-date header"))?
+        .to_str()?;
+
+    // use NaiveDateTime then assign Utc timezone (format: %Y%m%dT%H%M%SZ)
+    let naive = NaiveDateTime::parse_from_str(dt_header, LONG_DATETIME)
+        .map_err(|_| {
+            pingora::Error::new_str("invalid date")
+        })?;
+    let datetime = naive.and_utc();
+
+
+    info!("parsing the region and service");
+
+    let (_, (region, service)) = parse_credential_scope(auth_header)
+        .map_err(|_| pingora::Error::new_str("Invalid Credential scope"))?;
+
+    dbg!(&region);
+    dbg!(&service);
+
+    // determine payload hash header
+    let content_sha256 = session
+        .req_header()
+        .headers
+        .get("x-amz-content-sha256")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| pingora::Error::new_str("Missing x-amz-content-sha256 header"))?;
+    // let body_bytes: &[u8] = match content_sha256 {
+    //     "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
+    //     _ => &[],
+    // };
+
+    let (body_bytes, payload_override) = if content_sha256 == "UNSIGNED-PAYLOAD" {
+        (b"UNSIGNED-PAYLOAD" as &[u8], None)
+    } else {
+        // we don't have the raw body here, but we do have its hash:
+        // tell AwsSign to use this string directly
+        (&[] as &[u8], Some(content_sha256.to_owned()))
+    };
+
+    let original_uri = session.req_header().uri.to_string();
+    let full_url = if original_uri.starts_with('/') {
+        let host = session
+            .req_header()
+            .headers
+            .get("host")
+            .ok_or_else(|| pingora::Error::new_str("Missing host header"))?
+            .to_str()?;
+        format!("https://{}{}", host, original_uri)
+    } else {
+        original_uri
+    };
+
+    // construct AwsSign and compute signature
+    let method = session.req_header().method.to_string();
+    let mut signer = AwsSign::new(
+        &method,
+        &full_url,
+        &datetime,
+        &session.req_header().headers,
+        region,
+        &local_access_key,
+        &secret_key,
+        service,
+        body_bytes,
+        Some(&signed_headers),
+    );
+
+    if let Some(ov) = payload_override {
+        signer.set_payload_override(ov);
+    }
+
+    let signature = signer.sign();
+    let computed_signature = signature
+        .split("Signature=")
+        .nth(1)
+        .unwrap_or_default();
+
+    info!("Provided signature: {}", provided_signature);
+    info!("Computed signature: {}", computed_signature);
+    Ok(computed_signature == provided_signature)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -349,7 +493,7 @@ mod tests {
         let datetime = chrono::Utc::now();
         let url: &str = "https://hi.s3.us-east-1.amazonaws.com/Prod/graphql";
         let map: HeaderMap = HeaderMap::new();
-        let aws_sign = AwsSign::new("GET", url, &datetime, &map, "us-east-1", "a", "b", "s3", "");
+        let aws_sign = AwsSign::new("GET", url, &datetime, &map, "us-east-1", "a", "b", "s3", "", None);
         let s = aws_sign.canonical_request();
         assert_eq!(
             s,
@@ -372,6 +516,7 @@ mod tests {
             "b",
             "s3",
             "".as_bytes(),
+            None,
         );
         let s = aws_sign.canonical_request();
         assert_eq!(
@@ -396,6 +541,7 @@ mod tests {
             "b",
             "s3",
             &body,
+            None,
         );
         let s = aws_sign.canonical_request();
         assert_eq!(
