@@ -37,15 +37,15 @@ pub fn parse_credential_scope(input: &str) -> IResult<&str, (&str, &str)> {
 
 #[derive(Debug, PartialEq)]
 pub struct PresignedParams {
-    pub algorithm: String,        // X-Amz-Algorithm
-    pub access_key: String,       // from X-Amz-Credential
-    pub credential_date: String,  // from X-Amz-Credential
-    pub region: String,           // from X-Amz-Credential
-    pub service: String,          // from X-Amz-Credential
-    pub amz_date: String,         // X-Amz-Date
-    pub expires: String,          // X-Amz-Expires
-    pub signed_headers: String,   // X-Amz-SignedHeaders
-    pub signature: String,        // X-Amz-Signature
+    pub algorithm: String,
+    pub access_key: String,
+    pub credential_date: String,
+    pub region: String,
+    pub service: String,
+    pub amz_date: String,
+    pub expires: String,
+    pub signed_headers: String,
+    pub signature: String,
 }
 
 /// key chars: letters, digits, dash, dot
