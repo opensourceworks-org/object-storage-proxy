@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use http::header::HeaderMap;
 use pingora::{http::RequestHeader, proxy::Session};
 use sha256::digest;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use std::{collections::HashMap, fmt};
 use url::Url;
 
@@ -106,7 +106,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
             ]
         };
         
-        dbg!(&url);
+        debug!("{:#?}", &url);
         let url: Url = url.parse().unwrap();
         let headers: HashMap<String, String> = headers
             .iter()
@@ -227,7 +227,7 @@ where
             signed_headers = signed_headers,
             signature = signature
         );
-        info!("sign_string: {}", sign_string);
+        debug!("sign_string: {}", sign_string);
         sign_string
     }
 }
@@ -388,122 +388,6 @@ pub(crate) async fn sign_request(
 }
 
 
-/// Validate the signature of the request
-// pub async fn signature_is_valid(
-//     auth_header: &str,
-//     session: &Session,
-//     secret_key: &str,
-// ) -> Result<bool, Box<dyn std::error::Error>> {
-
-//     let signed_headers_str = auth_header
-//         .split("SignedHeaders=")
-//         .nth(1)
-//         .and_then(|s| s.split(',').next())
-//         .unwrap_or("");
-//     let signed_headers: Vec<String> =
-//         signed_headers_str.split(';').map(|s| s.to_lowercase()).collect();
-
-
-//     // extract access key from Authorization header
-//     let (_, local_access_key) = parse_token_from_header(auth_header)
-//         .map_err(|_| pingora::Error::new_str("Failed to parse token"))?;
-//     let local_access_key = local_access_key.to_string();
-//     if local_access_key.is_empty() {
-//         error!("Missing access key");
-//         return Ok(false);
-//     }
-
-//     // extract provided signature
-//     let provided_signature = auth_header
-//         .split("Signature=")
-//         .nth(1)
-//         .ok_or_else(|| pingora::Error::new_str("Invalid Authorization header: no Signature"))?
-//         .to_string();
-
-//     // parse x-amz-date header
-//     let dt_header = session
-//         .req_header()
-//         .headers
-//         .get("x-amz-date")
-//         .ok_or_else(|| pingora::Error::new_str("Missing x-amz-date header"))?
-//         .to_str()?;
-
-//     // use NaiveDateTime then assign Utc timezone (format: %Y%m%dT%H%M%SZ)
-//     let naive = NaiveDateTime::parse_from_str(dt_header, LONG_DATETIME)
-//         .map_err(|_| {
-//             pingora::Error::new_str("invalid date")
-//         })?;
-//     let datetime = naive.and_utc();
-
-
-//     info!("parsing the region and service");
-
-//     let (_, (region, service)) = parse_credential_scope(auth_header)
-//         .map_err(|_| pingora::Error::new_str("Invalid Credential scope"))?;
-
-//     dbg!(&region);
-//     dbg!(&service);
-
-//     // determine payload hash header
-//     let content_sha256 = session
-//         .req_header()
-//         .headers
-//         .get("x-amz-content-sha256")
-//         .and_then(|h| h.to_str().ok())
-//         .ok_or_else(|| pingora::Error::new_str("Missing x-amz-content-sha256 header"))?;
-
-
-//     let (body_bytes, payload_override) = if content_sha256 == "UNSIGNED-PAYLOAD" {
-//         (b"UNSIGNED-PAYLOAD" as &[u8], None)
-//     } else {
-//         // we don't have the raw body here, but we do have its hash:
-//         // tell AwsSign to use this string directly
-//         (&[] as &[u8], Some(content_sha256.to_owned()))
-//     };
-
-//     let original_uri = session.req_header().uri.to_string();
-//     let full_url = if original_uri.starts_with('/') {
-//         let host = session
-//             .req_header()
-//             .headers
-//             .get("host")
-//             .ok_or_else(|| pingora::Error::new_str("Missing host header"))?
-//             .to_str()?;
-//         format!("https://{}{}", host, original_uri)
-//     } else {
-//         original_uri
-//     };
-
-//     // construct AwsSign and compute signature
-//     let method = session.req_header().method.to_string();
-//     let mut signer = AwsSign::new(
-//         &method,
-//         &full_url,
-//         &datetime,
-//         &session.req_header().headers,
-//         region,
-//         &local_access_key,
-//         &secret_key,
-//         service,
-//         body_bytes,
-//         Some(&signed_headers),
-//     );
-
-//     if let Some(ov) = payload_override {
-//         signer.set_payload_override(ov);
-//     }
-
-//     let signature = signer.sign();
-//     let computed_signature = signature
-//         .split("Signature=")
-//         .nth(1)
-//         .unwrap_or_default();
-
-//     info!("Provided signature: {}", provided_signature);
-//     info!("Computed signature: {}", computed_signature);
-//     Ok(computed_signature == provided_signature)
-// }
-
 /// Core signature validation: compares provided vs computed
 async fn signature_is_valid_core(
     method: &str,
@@ -520,7 +404,7 @@ async fn signature_is_valid_core(
     body_bytes: &[u8],
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // Build AwsSign for authorization header style
-    dbg!(&headers);
+    debug!("{:#?}", &headers);
     let mut signer = AwsSign::new(
         method,
         full_url,
@@ -538,8 +422,8 @@ async fn signature_is_valid_core(
     }
     let signature = signer.sign();
     let computed = signature.split("Signature=").nth(1).unwrap_or_default();
-    info!("Provided signature: {}", provided_signature);
-    info!("Computed signature: {}", computed);
+    debug!("Provided signature: {}", provided_signature);
+    debug!("Computed signature: {}", computed);
     Ok(computed == provided_signature)
 }
 
@@ -653,7 +537,7 @@ pub async fn signature_is_valid_for_presigned(
 
     
     let mut url = Url::parse(&full_uri)?; 
-    info!("full_url: {}", url);
+    debug!("full_url: {}", url);
     let mut provided_signature = None;
     let mut qp: Vec<(String,String)> = vec![];
     for (k, v) in url.query_pairs() {
@@ -664,7 +548,6 @@ pub async fn signature_is_valid_for_presigned(
         }
     }
     let provided_signature = provided_signature.ok_or("Missing X-Amz-Signature")?;
-    // ----------------------------------------------------------------------
     
     // rebuild query string without the signature
     qp.sort();
@@ -676,19 +559,15 @@ pub async fn signature_is_valid_for_presigned(
     
     // params map (also without the signature)
     let params: HashMap<_, _> = qp.into_iter().collect();
-    info!("params: {:?}", params);
-    info!("url: {:?}", url);
+    debug!("params: {:?}", params);
+    debug!("url: {:?}", url);
 
-    // Required signature and credential
-    // let provided_signature = params
-    //     .get("X-Amz-Signature")
-    //     .ok_or("Missing X-Amz-Signature")?;
-    info!("provided signature: {}", provided_signature);
+    debug!("provided signature: {}", provided_signature);
     let credential = params
         .get("X-Amz-Credential")
         .ok_or("Missing X-Amz-Credential")?;
 
-    info!("credential: {}", credential);
+    debug!("credential: {}", credential);
 
     // Parse credential: <access_key>/<date>/<region>/<service>/aws4_request
     let mut parts = credential.split('/');
@@ -697,9 +576,9 @@ pub async fn signature_is_valid_for_presigned(
     let region = parts.next().ok_or("Malformed Credential")?;
     let service = parts.next().ok_or("Malformed Credential")?;
 
-    info!("access_key: {}", access_key);
-    info!("region: {}", region);
-    info!("service: {}", service);
+    debug!("access_key: {}", access_key);
+    debug!("region: {}", region);
+    debug!("service: {}", service);
 
     // Parse date from query
     let date_str = params
@@ -707,25 +586,12 @@ pub async fn signature_is_valid_for_presigned(
         .ok_or("Missing X-Amz-Date")?;
     let datetime = NaiveDateTime::parse_from_str(date_str, LONG_DATETIME)?.and_utc();
 
-    info!("datetime: {}", datetime);
-
-    // // Determine payload override
-    // let payload_override = params
-    //     .get("X-Amz-Content-Sha256")
-    //     .filter(|v| *v != "UNSIGNED-PAYLOAD")
-    //     .map(|v| v.to_string());
-    // info!("payload_override: {:?}", payload_override);
-    // let body_bytes: &[u8] = if params.get("X-Amz-Content-Sha256")
-    //     == Some(&"UNSIGNED-PAYLOAD".to_string()) {
-    //     b"UNSIGNED-PAYLOAD"
-    // } else {
-    //     &[]
-    // };
+    debug!("datetime: {}", datetime);
 
     let body_bytes: &[u8] = b"UNSIGNED-PAYLOAD";
     let payload_override = None;  
 
-    info!("body_bytes: {:?}", body_bytes);
+    debug!("body_bytes: {:?}", body_bytes);
 
     // Collect signed headers list
     let signed_headers = params
@@ -755,7 +621,7 @@ pub async fn signature_is_valid_for_presigned(
 
 
 
-    info!("signed_headers: {:?}", signed_headers);
+    debug!("signed_headers: {:?}", signed_headers);
     // Delegate to core validator
     signature_is_valid_core(
         session.req_header().method.as_str(),

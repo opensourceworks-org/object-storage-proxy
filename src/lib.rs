@@ -315,18 +315,29 @@ impl ProxyHttp for MyProxy {
             map.get(bucket).and_then(|c| c.ttl).unwrap_or(0)
         };
         let mut access_key: String = String::new();
+
+        if auth_header.is_empty() {
+            if let Some(q) = session.req_header().uri.query() {
+                if q.contains("X-Amz-Credential") {
+                    let (_, p) = parse_presigned_params(&format!("?{q}"))
+                        .map_err(|_| pingora::Error::new_str("Failed to parse presigned params"))?;
+                    access_key = p.access_key.clone();
+                }
+            }
+        } else {
+            access_key = parse_token_from_header(&auth_header)
+            .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
+            .1
+            .to_string();
+        }
+
         let is_authorized = if let Some(py_cb) = &ctx.validator {
-            // let access_key = parse_token_from_header(&auth_header)
-            //     .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
-            //     .1
-            //     .to_string();
 
             let is_multipart = session
                 .req_header()
                 .uri
                 .query()
                 .map_or(false, |q| q.contains("uploadId="));
-
 
 
             info!("CHECKING SIGNATURE");
@@ -341,18 +352,11 @@ impl ProxyHttp for MyProxy {
                     let uri_q = session.req_header().uri.query().unwrap_or("");
 
                     if auth_header.is_empty() && uri_q.contains("X-Amz-Signature") {
-                        let full_q = format!("?{uri_q}");
                         ctx.is_presigned = Some(true);
-                        let (_, presigned_params) = parse_presigned_params(&full_q)
-                            .map_err(|_| pingora::Error::new_str("Failed to parse presigned params"))?;
-                        access_key = presigned_params.access_key.clone();
-                        // let access_key = parse_credential_scope(uri_q)
-                        //     .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
-                        //     .1
-                        //     .to_string();
+
                         // ensure we have the secret_key in the keystore
                         if !ctx.hmac_keystore.read().await.contains_key(&access_key) {
-                            info!("No key in keystore, trying to fetch via hmac_fetche for ->{}<-", access_key);
+                            debug!("No key in keystore, trying to fetch via hmac_fetcher for ->{}<-", access_key);
                             // fetch via hmac_fetcher exactly as you do below…
                             if let Some(py_fetcher) = &ctx.hmac_fetcher {
                                 // call Python callback
@@ -361,10 +365,10 @@ impl ProxyHttp for MyProxy {
                                     cb.call1(py, (&access_key,))
                                       .and_then(|r| r.extract(py))
                                 });
-                                info!("Got secret: {:#?}", secret);
+                                debug!("Got secret: {:#?}", secret);
                                 match secret {
                                     Ok(secret_key) => {
-                                        info!("got key and inserting into keystore");
+                                        debug!("got key and inserting into keystore");
                                         ctx.hmac_keystore.write().await.insert(access_key.clone().to_string(), secret_key);
                                     }
                                     Err(_) => {
@@ -379,9 +383,11 @@ impl ProxyHttp for MyProxy {
                             }
      
                         }
-                        info!("now checking if the signature is valid for presigned...");
+                        debug!("now checking if the signature is valid for presigned...");
                         let sk = ctx.hmac_keystore.read().await.get(&access_key).unwrap().clone();
-                        info!("got secret {} from keystore", sk);
+                        debug!("got secret {} from keystore", sk);
+                        debug!("RAW_PATH       = {}", &session.req_header().uri);
+                        debug!("RAW_HOST_HDR   = {:?}", &session.req_header().headers.get("host"));
                         let ok = match signature_is_valid_for_presigned(&session, &sk).await {
                             Ok(b)  => b,
                             Err(e) => {
@@ -396,11 +402,6 @@ impl ProxyHttp for MyProxy {
                         }
                     } else {
                     info!("processing a regular request");
-                    // hmac request
-                    access_key = parse_token_from_header(&auth_header)
-                        .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
-                        .1
-                        .to_string();
 
                     let has_key = {
                         let map = ctx.hmac_keystore.read().await;
@@ -463,7 +464,7 @@ impl ProxyHttp for MyProxy {
             }
             info!("Signature check passed, continuing now onto the bespoke validation");
             let cache_key = format!("{}:{}", &access_key, bucket);
-            info!("Cache key: {}", cache_key);
+            debug!("Cache key: {}", cache_key);
 
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
@@ -494,11 +495,8 @@ impl ProxyHttp for MyProxy {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
-        // access_key = parse_token_from_header(&auth_header)
-        //     .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
-        //     .1
-        //     .to_string();
-        info!("Access key: {}", &access_key);
+
+        debug!("Access key: {}", &access_key);
 
         // we have to check for some available credentials here to be able to return unauthorized already if not
         match bucket_config.clone() {
@@ -728,7 +726,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         parse_hmac_list(py, &run_args.hmac_keystore).unwrap_or(HashMap::new())
     };
 
-    info!("HMAC keys: {:#?}", &local_hmac_map);
+    debug!("HMAC keys: {:#?}", &local_hmac_map);
 
     let cosmap = Arc::new(RwLock::new(parse_cos_map(py, &run_args.cos_map).unwrap()));
     let hmac_keystore = Arc::new(RwLock::new(local_hmac_map));
