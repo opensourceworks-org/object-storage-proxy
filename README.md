@@ -11,16 +11,40 @@
 
 A fast and safe in-process reverse proxy server, based on Cloudflare's [pingora](https://github.com/cloudflare/pingora?tab=readme-ov-file), to reverse proxy AWS and IBM Cloud Object Storage buckets and integrate your Authentication and Authorization services.
 
-Decouples frontend from backend authentication and authorization. 
+- Compatible with AWS SDK -> aws cli/boto3, polars, spark, datafusion, ...
+- Decouples frontend from backend authentication and authorization. 
+- Python interface: pass in callables for credentials fetching, validation, lookup secret for access_key (with cache).
+- Compatibility Gateway between systems that support only 1 hmac credentials pair, and multi-credentials buckets backend.
 
 
-- [x] Takes a Python authorization callable (allows you to plug in your own authorization services) and api_key fetch callback function and cos bucket dictionary.
-- [x] The validation is cached with optional ttl (default 5min, keep it short). 
-- [x] The apikey is used to authenticate against IBM's IAM endpoint and is cached and renewed on expiration. (IBM only)
-- [x] If no apikey or hmac keypair is provided, a Python function can be passed in to fetch the apikey or hmac keys for any given bucket (run once).
-- [x] HMAC support: passing in access and secret id keys (or as json string from python credentials callable), will be used to sign the upstream request (AWS/IBM/..)
-- [x] frontend request is signed with your own custom keypair
-- [x] supports running in cloud environments / proxy headers for request signature validation
+## Implementation
+The Server Config accepts the following:
+
+    proxy_server_config = ProxyServerConfig(
+        cos_map=cos_map,
+        bucket_creds_fetcher=do_hmac_creds,
+        validator=do_validation,
+        http_port=6190,
+        https_port=8443,
+        threads=1,
+        verify=False,
+        hmac_keystore=hmac_keys,
+        skip_signature_validation=False,
+        hmac_fetcher=lookup_secret_key
+    )
+
+| argument | description | optional | default value |
+| -------- | ----------- | -------- | ------------- |
+| cos_map | bucket configuration, see below | | NA |
+| bucket_creds_fetcher | python callable to retrieve credentials for a given bucket, to return either api key or hmac key pair | ✅ | NA |
+| validator | python callable, validates access for a given token/bucket combination | ✅ | NA |
+| http_port | server listener port on http | ✅ at least http_port or https_port, or both | NA |
+| https_port | server listener port on https | ✅ at least http_port or https_port, or both | NA |
+| threads | number of service threads | ✅ | 1 |
+| verify | ignore ssl verification errors on backend storage (IBM/AWS) (for dev purposes) | ✅ | False |
+| hmac_keystore | | | |
+| skip_signature_validation | ignore ssl verification errors on frontend (for dev purposes) | ✅ | False |
+
 
 The bucket dict contains for each bucket:
 
@@ -62,6 +86,7 @@ cos_map = {
 ```
 
 The Python callables take two arguments: 
+    TODO: add prefix for fine-grained validation
 
     - token: parsed from the original aws request's authorization header
     - bucket: parsed from the uri path
@@ -71,11 +96,8 @@ The Python callables take two arguments:
     def your_request_authorizer(token: str, bucket: str) -> bool
 ```
 
-Proxy Configuration
 
-
-
-
+## The Problem
 
 ### secrets
 IBM COS Storage is built in a way where buckets are grouped by a cos (Cloud Object Storage) instance.  Access to a bucket is managed by either an api key or hmac secrets, configured on the cos instance.  
@@ -134,8 +156,8 @@ s3 =
 ~/.aws/credentials
 ```ini
 [osp]
-aws_access_key_id = MYLOCAL123  # <-- this could be an openid connect/oauth2 token or anything that makes sense for your business, encode it if required
-aws_secret_access_key = nothingmeaningful # <-- used for compatibility with aws sdk, to sign original request, but is ignored later
+aws_access_key_id = MYLOCAL123  # <-- this could be an openid connect/oauth2 token or anything that makes sense for your business
+aws_secret_access_key = nothingmeaningful # <-- private key to sign original request
 ```
 
 Set up a minimal server implementation:

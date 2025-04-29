@@ -7,11 +7,12 @@ name = "object-storage-proxy"
 description = "<object-storage-proxy ⚡> Yet Another Object Storage Proxy"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Jeroen", email = "jeroen@flexworks.eu" }]
-license = "MIT"
+license = "Personal Use License"
 
 
 requires-python = ">=3.10"
 classifiers = [
+  "License :: Other/Proprietary License",
   "Programming Language :: Rust",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
