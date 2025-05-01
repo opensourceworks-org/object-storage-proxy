@@ -451,9 +451,11 @@ pub(crate) async fn sign_request(
     //     // don’t hash the literal bytes – embed the magic string itself
     //     signer.set_payload_override(payload_hash_value.to_string());
     // }
-    if payload_hash_value != "UNSIGNED-PAYLOAD" {
-        signer.set_payload_override(payload_hash_value.to_string());
-    }
+    // if payload_hash_value != "UNSIGNED-PAYLOAD" {
+    //     signer.set_payload_override(payload_hash_value.to_string());
+    // }
+
+    signer.set_payload_override(payload_hash_value.clone());
 
     let signature = signer.sign();
     debug!("{:#?}", signature);
