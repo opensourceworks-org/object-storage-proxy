@@ -382,9 +382,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.10.0"
+version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f61dac84819c6588b558454b194026eb1f09c293b9036ae9b159e74e73ab6cf9"
+checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "cc"
@@ -1701,19 +1701,23 @@ dependencies = [
 
 [[package]]
 name = "object-storage-proxy"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
+ "async-stream",
  "async-trait",
+ "bytes",
  "chrono",
  "clap 4.5.37",
  "dotenv",
  "env_logger",
  "futures",
+ "futures-core",
  "hex",
  "http",
  "log",
  "nom 8.0.0",
  "percent-encoding",
+ "pin-project-lite",
  "pingora",
  "prometheus 0.14.0",
  "pyo3",
@@ -1725,6 +1729,7 @@ dependencies = [
  "serde_json",
  "sha256",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -3256,9 +3261,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
+checksum = "66a539a9ad6d5d281510d5bd368c973d636c02dbf8a67300bfb6b950696ad7df"
 dependencies = [
  "bytes",
  "futures-core",

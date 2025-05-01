@@ -6,6 +6,10 @@ use tracing::{debug, error};
 use std::{collections::{HashMap, HashSet}, fmt};
 use url::Url;
 
+use ring::hmac;
+
+use bytes::{Bytes, BytesMut};
+
 use crate::parsers::{cos_map::CosMapItem, credentials::{parse_credential_scope, parse_token_from_header}};
 
 const SHORT_DATE: &str = "%Y%m%d";
@@ -727,6 +731,70 @@ pub async fn signature_is_valid_for_presigned(
         body_bytes,
     ).await
 }
+
+
+
+/// Build a stream whose items are *already* wrapped in
+/// “AWS-chunk-signed” envelopes.
+///
+/// * `body`        – raw payload implementing `AsyncRead`  
+/// * `signing_key` – result of the usual `signing_key()` step  
+/// * `scope`       – e.g. `"20250501/eu-west-3/s3/aws4_request"`  
+/// * `ts`          – the `X-Amz-Date` you put in the header (`YYYYMMDDThhmmssZ`)  
+/// * `seed_sig`    – the `Signature=` value you computed for the
+///                   *headers* (the one that goes into `Authorization:`)
+///
+/// ```text
+/// ┌──── header chunk ────┐┌── data ─┐┌─ CRLF ─┐
+/// <hex-len>;chunk-signature=<sig>\r\n<bytes>\r\n
+/// ```
+///
+/// The very last frame is
+/// ```text
+/// 0;chunk-signature=<final-sig>\r\n\r\n
+/// ```
+pub async fn wrap_streaming_body(
+    session: &mut Session,
+    upstream_request: &mut RequestHeader,
+    region: &str,
+    access_key: &str,
+    secret_key: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // 1. pull the COMPLETE body from the client
+    let body: Bytes = session.read_request_body().await.expect("Failed to read request body").unwrap();
+
+    // 2. overwrite the x-amz-* headers so that we can sign UNSIGNED-PAYLOAD
+    upstream_request.insert_header("x-amz-content-sha256", "UNSIGNED-PAYLOAD")?;
+    upstream_request.remove_header("x-amz-decoded-content-length");
+    upstream_request.insert_header("content-length", body.len().to_string())?;
+
+    // 3. resign
+    let ts = chrono::Utc::now();
+    let url = upstream_request.uri.to_string();
+    upstream_request.insert_header("x-amz-date", ts.format("%Y%m%dT%H%M%SZ").to_string())?;
+    let signer = AwsSign::new(
+        upstream_request.method.as_str(),
+        &url,
+        &ts,
+        &upstream_request.headers,
+        region,
+        access_key,
+        secret_key,
+        "s3",
+        b"UNSIGNED-PAYLOAD",
+        None,
+    );
+    let auth = signer.sign();
+    upstream_request.insert_header("authorization", auth)?;
+
+    let end_of_stream: bool = session.is_body_done();
+
+    // 4. finally attach the body
+    session.write_response_body(Some(body), end_of_stream).await?;
+
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {

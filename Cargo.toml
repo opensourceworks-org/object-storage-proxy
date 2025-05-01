@@ -1,6 +1,6 @@
 [package]
 name = "object-storage-proxy"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2024"
 
 [dependencies]
@@ -34,6 +34,11 @@ ring = "0.17.14"
 hex = "0.4.3"
 regex = "1.11.1"
 percent-encoding = "2.3.1"
+bytes = "1.10.1"
+async-stream = "0.3.6"
+tokio-util = "0.7.15"
+futures-core = "0.3.31"
+pin-project-lite = "0.2.16"
 
 # [build-dependencies]
 # openssl-sys = { version = "0.9", features = ["vendored"] }

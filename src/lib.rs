@@ -1,13 +1,12 @@
 #![warn(clippy::all)]
 use async_trait::async_trait;
-use credentials::signer::{signature_is_valid_for_presigned, signature_is_valid_for_request};
+use credentials::signer::{signature_is_valid_for_presigned, signature_is_valid_for_request, wrap_streaming_body};
 use dotenv::dotenv;
 use http::Uri;
 use http::uri::Authority;
 use parsers::cos_map::{CosMapItem, parse_cos_map};
 use parsers::keystore::parse_hmac_list;
 use pingora::http::ResponseHeader;
-use pingora::protocols::ALPN;
 use pingora::Result;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
@@ -28,6 +27,9 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
+
+use tokio_util::io::StreamReader;
+use futures::TryStreamExt;
 
 pub mod parsers;
 use parsers::credentials::{parse_presigned_params, parse_token_from_header};
@@ -550,7 +552,7 @@ impl ProxyHttp for MyProxy {
 
     async fn upstream_request_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
@@ -670,12 +672,61 @@ impl ProxyHttp for MyProxy {
 
         if maybe_hmac {
             debug!("HMAC: Signing request for bucket: {}", hdr_bucket);
-            sign_request(upstream_request, bucket_config.as_ref().unwrap())
-                .await
-                .map_err(|e| {
-                    error!("Failed to sign request for {}: {e}", hdr_bucket);
-                    pingora::Error::new_str("Failed to sign request")
+
+            let streaming = {
+                upstream_request
+                    .headers
+                    .get("x-amz-content-sha256")
+                    .map(|v| v.as_bytes().starts_with(b"STREAMING-AWS4"))
+                    .unwrap_or(false)
+            };
+
+            if streaming {
+                let auth_header = session
+                    .req_header()
+                    .headers
+                    .get("authorization")
+                    .and_then(|h| h.to_str().ok())
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
+
+                let access_key = parse_token_from_header(&auth_header)
+                    .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
+                    .1
+                    .to_string();
+                
+                let secret_key = {
+                    let map = ctx.hmac_keystore.read().await;
+                    map.get(&access_key).cloned()
+                };
+
+                if secret_key.is_none() {
+                    error!("No secret key found for access key: {}", access_key);
+                    return Err(pingora::Error::new_str("No secret key found"));
+                }
+                let secret_key = secret_key.unwrap();
+
+                wrap_streaming_body(
+                    session,
+                    upstream_request,
+                    "eu-west-3",               // <- region for the bucket
+                    &access_key,        // <- retrieved from your CosMapItem
+                    &secret_key,
+                )
+                .await.map_err(|e| {
+                    error!("Failed to wrap streaming body: {e}");
+                    pingora::Error::new_str("Failed to wrap streaming body")
                 })?;
+                dbg!("streaming signature!!");
+            } else {
+                sign_request(upstream_request, bucket_config.as_ref().unwrap())
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to sign request for {}: {e}", hdr_bucket);
+                        pingora::Error::new_str("Failed to sign request")
+                    })?;
+            }
+
             debug!("Request signed for bucket: {}", hdr_bucket);
             debug!("{:#?}", &upstream_request.headers);
         } else {
