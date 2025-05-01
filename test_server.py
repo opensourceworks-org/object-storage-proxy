@@ -142,7 +142,7 @@ def main() -> None:
         bucket_creds_fetcher=do_hmac_creds,
         validator=do_validation,
         http_port=6190,
-        # https_port=8443,
+        https_port=8443,
         threads=1,
         # verify=False,
         hmac_keystore=hmac_keys,

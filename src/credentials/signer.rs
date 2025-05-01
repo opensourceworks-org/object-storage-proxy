@@ -3,7 +3,7 @@ use http::header::HeaderMap;
 use pingora::{http::RequestHeader, proxy::Session};
 use sha256::digest;
 use tracing::{debug, error};
-use std::{collections::HashMap, fmt};
+use std::{collections::{HashMap, HashSet}, fmt};
 use url::Url;
 
 use crate::parsers::{cos_map::CosMapItem, credentials::{parse_credential_scope, parse_token_from_header}};
@@ -90,40 +90,88 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         secret_key: &'a str,
         service: &'a str,
         body: &'a B,
-        signed_headers: Option<&'a Vec<String>>,
+        _signed_headers: Option<&'a Vec<String>>,
     ) -> Self {
 
 
-        let allowed: Vec<&str> = if let Some(sh) = signed_headers {
-            sh.iter().map(String::as_str).collect()
-        } else {
-            vec![
-                "host",
-                "x-amz-date",
-                "range",
-                "x-amz-content-sha256",
-                "x-amz-security-token",
-                "trailer",
-                "x-amz-trailer",
-                "content-encoding",
-            ]
-        };
-        
-        debug!("{:#?}", &url);
-        let url: Url = url.parse().unwrap();
+        // let allowed: Vec<&str> = if let Some(sh) = signed_headers {
+        //     sh.iter().map(String::as_str).collect()
+        // } else {
+        //     vec![
+        //         "host",
+        //         "x-amz-date",
+        //         "range",
+        //         "x-amz-content-sha256",
+        //         "x-amz-security-token",
+        //     ]
+        // };
+
+        let signed_allow: Option<HashSet<&str>> =
+            _signed_headers.map(|v| v.iter().map(String::as_str).collect());
+
         let headers: HashMap<String, String> = headers
             .iter()
             .filter_map(|(key, value)| {
                 let name = key.as_str().to_lowercase();
-                if !allowed.contains(&name.as_str()) {
+
+                // ─── decide whether to keep `name` ──────────────────────────
+                let keep = if let Some(ref set) = signed_allow {
+                    // verifier path → keep exactly what the client signed
+                    set.contains(name.as_str())
+                } else {
+                    // re-signing path → keep the full streaming whitelist
+                    name == "host"
+                        || name.starts_with("x-amz-")
+                        || matches!(
+                            name.as_str(),
+                            "content-length"
+                                | "content-encoding"
+                                | "transfer-encoding"
+                                | "range"
+                                | "expect"
+                                | "x-amz-decoded-content-length"
+                        )
+                };
+                if !keep {
                     return None;
                 }
-                value
-                    .to_str()
-                    .ok()
-                    .map(|v| (name, v.trim().to_owned()))
+                value.to_str().ok().map(|v| (name, v.trim().to_owned()))
             })
             .collect();
+        
+
+        // let headers: HashMap<String, String> = headers
+        //     .iter()
+        //     .filter_map(|(key, value)| {
+        //         let name = key.as_str().to_lowercase();
+        //         let keep = name == "host"
+        //             || name.starts_with("x-amz-")
+        //             || name == "content-length"
+        //             || name == "content-encoding"
+        //             || name == "transfer-encoding"
+        //             || name == "range";
+        //         if !keep {
+        //             return None;
+        //         }
+        //         value.to_str().ok().map(|v| (name, v.trim().to_owned()))
+        //     })
+        //     .collect();
+        
+        debug!("{:#?}", &url);
+        let url: Url = url.parse().unwrap();
+        // let headers: HashMap<String, String> = headers
+        //     .iter()
+        //     .filter_map(|(key, value)| {
+        //         let name = key.as_str().to_lowercase();
+        //         if !allowed.contains(&name.as_str()) {
+        //             return None;
+        //         }
+        //         value
+        //             .to_str()
+        //             .ok()
+        //             .map(|v| (name, v.trim().to_owned()))
+        //     })
+        //     .collect();
         Self {
             method,
             url,
@@ -347,17 +395,34 @@ pub(crate) async fn sign_request(
             .parse::<http::header::HeaderValue>()
             .unwrap(),
     )?;
-    let payload_hash = if method == "GET" || method == "HEAD" || method == "DELETE" {
-        // spec uses empty‑body hash for reads
-        &sha256::digest(b"")
-    } else {
-        // for streaming uploads we sign UNSIGNED‑PAYLOAD
-        "UNSIGNED-PAYLOAD"
+    // let payload_hash = if method == "GET" || method == "HEAD" || method == "DELETE" {
+    //     // spec uses empty‑body hash for reads
+    //     &sha256::digest(b"")
+    // } else {
+    //     // for streaming uploads we sign UNSIGNED‑PAYLOAD
+    //     "UNSIGNED-PAYLOAD"
+    // };
+    let payload_hdr = request
+        .headers
+        .get("x-amz-content-sha256")
+        .and_then(|v| v.to_str().ok());
+
+    let payload_hash = match payload_hdr {
+        // client already supplied one → keep it verbatim
+        Some(h) => h,                                       
+
+        // empty-body requests (GET/HEAD/DELETE) → spec hash of “”
+        None if matches!(method.as_str(), "GET" | "HEAD" | "DELETE") => 
+            &sha256::digest(b""),
+
+        // default for uploads over TLS
+        _ => "UNSIGNED-PAYLOAD",
     };
 
-    request.insert_header("x-amz-content-sha256", payload_hash)?;
+    let payload_hash_value = payload_hash.to_string();
+    request.insert_header("x-amz-content-sha256", payload_hash_value.clone())?;
 
-    let body_bytes: &[u8] = match payload_hash {
+    let body_bytes: &[u8] = match payload_hash_value.clone().as_str() {
         // empty body → empty slice
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" => &[], // sha256 hash of empty string
         "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
@@ -380,12 +445,22 @@ pub(crate) async fn sign_request(
     );
     debug!("{:#?}", &auth_header);
 
-    let signature = auth_header.sign();
+    let mut signer = auth_header;
+
+    // if payload_hash_value.starts_with("STREAMING-") {
+    //     // don’t hash the literal bytes – embed the magic string itself
+    //     signer.set_payload_override(payload_hash_value.to_string());
+    // }
+    if payload_hash_value != "UNSIGNED-PAYLOAD" {
+        signer.set_payload_override(payload_hash_value.to_string());
+    }
+
+    let signature = signer.sign();
     debug!("{:#?}", signature);
 
     request.insert_header(
         "Authorization",
-        http::header::HeaderValue::from_str(&auth_header.sign())?,
+        http::header::HeaderValue::from_str(&signature)?,
     )?;
 
     Ok(())
@@ -421,9 +496,17 @@ async fn signature_is_valid_core(
         body_bytes,
         Some(&signed_headers),
     );
+
+    // if payload_hash.starts_with("STREAMING-") {
+    //     // don’t hash the literal bytes – embed the magic string itself
+    //     signer.set_payload_override(payload_hash.to_string());
+    // }
+
     if let Some(ov) = payload_override {
+        dbg!("payload_override: {}", &ov);
         signer.set_payload_override(ov);
     }
+
     let signature = signer.sign();
     let computed = signature.split("Signature=").nth(1).unwrap_or_default();
     debug!("Provided signature: {}", provided_signature);

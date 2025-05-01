@@ -272,7 +272,7 @@ impl ProxyHttp for MyProxy {
 
         // todo: make ths configurable
 
-        peer.options.max_h2_streams = 32;
+        peer.options.max_h2_streams = 128;
         peer.options.h2_ping_interval = Some(Duration::from_secs(30));
 
 
@@ -634,10 +634,17 @@ impl ProxyHttp for MyProxy {
             "x-amz-date",
             "x-amz-content-sha256",
             "x-amz-security-token",
+            "transfer-encoding",
             "content-encoding",
-            "range",
-            "trailer",
+            "x-amz-decoded-content-length",
             "x-amz-trailer",
+            "x-amz-sdk-checksum-algorithm",
+            "range",
+            "expect",                      
+            // "content-encoding",
+            // "range",
+            // "trailer",
+            // "x-amz-trailer",
         ];
 
         let to_check: Vec<String> = upstream_request
