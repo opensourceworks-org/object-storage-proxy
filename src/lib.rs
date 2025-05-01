@@ -647,14 +647,23 @@ impl ProxyHttp for MyProxy {
             // "x-amz-trailer",
         ];
 
+
         let to_check: Vec<String> = upstream_request
             .headers
             .iter()
             .map(|(name, _)| name.as_str().to_owned())
             .collect();
 
+        // for name in to_check {
+        //     if !allowed.contains(&name.as_str()) {
+        //         let _ = upstream_request.remove_header(&name);
+        //     }
+        // }
+
         for name in to_check {
-            if !allowed.contains(&name.as_str()) {
+            let keep = allowed.contains(&name.as_str())
+                || name.starts_with("x-amz-checksum-");
+            if !keep {
                 let _ = upstream_request.remove_header(&name);
             }
         }
