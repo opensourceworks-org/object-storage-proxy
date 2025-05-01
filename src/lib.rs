@@ -634,6 +634,7 @@ impl ProxyHttp for MyProxy {
             "x-amz-date",
             "x-amz-content-sha256",
             "x-amz-security-token",
+            "content-encoding",
             "range",
             "trailer",
             "x-amz-trailer",

@@ -105,6 +105,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
                 "x-amz-security-token",
                 "trailer",
                 "x-amz-trailer",
+                "content-encoding",
             ]
         };
         
