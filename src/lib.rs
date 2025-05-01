@@ -14,6 +14,7 @@ use pingora::upstreams::peer::HttpPeer;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
 use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
+use ring::hmac;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -682,35 +683,28 @@ impl ProxyHttp for MyProxy {
             };
 
             if streaming {
-                let auth_header = session
-                    .req_header()
-                    .headers
-                    .get("authorization")
-                    .and_then(|h| h.to_str().ok())
-                    .map(ToString::to_string)
-                    .unwrap_or_default();
-
-                let access_key = parse_token_from_header(&auth_header)
-                    .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
-                    .1
-                    .to_string();
+                // let auth_header = session
+                //     .req_header()
+                //     .headers
+                //     .get("authorization")
+                //     .and_then(|h| h.to_str().ok())
+                //     .map(ToString::to_string)
+                //     .unwrap_or_default();
                 
-                let secret_key = {
-                    let map = ctx.hmac_keystore.read().await;
-                    map.get(&access_key).cloned()
-                };
+                let access_key= bucket_config.as_ref().unwrap().access_key.as_ref().unwrap_or(&String::new()).to_string();
+                let secret_key = bucket_config.as_ref().unwrap()
+                    .secret_key
+                    .as_ref()
+                    .unwrap_or(&String::new())
+                    .to_string();
 
-                if secret_key.is_none() {
-                    error!("No secret key found for access key: {}", access_key);
-                    return Err(pingora::Error::new_str("No secret key found"));
-                }
-                let secret_key = secret_key.unwrap();
+                let region = bucket_config.as_ref().unwrap().region.as_ref().unwrap_or(&String::new()).to_string();
 
                 wrap_streaming_body(
                     session,
                     upstream_request,
-                    "eu-west-3",               // <- region for the bucket
-                    &access_key,        // <- retrieved from your CosMapItem
+                    &region,
+                    &access_key,
                     &secret_key,
                 )
                 .await.map_err(|e| {
