@@ -7,6 +7,7 @@ use http::uri::Authority;
 use parsers::cos_map::{CosMapItem, parse_cos_map};
 use parsers::keystore::parse_hmac_list;
 use pingora::http::ResponseHeader;
+use pingora::protocols::ALPN;
 use pingora::Result;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
@@ -268,6 +269,17 @@ impl ProxyHttp for MyProxy {
         let addr = (endpoint.clone(), port);
 
         let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
+        peer.options.alpn = ALPN::H2;
+
+        peer.options.max_h2_streams = 32;
+        peer.options.h2_ping_interval = Some(Duration::from_secs(30));
+
+        // todo: make ths configurable
+
+        // peer.options.idle_timeout          = Some(Duration::from_secs(300));
+        // peer.options.connection_timeout    = Some(Duration::from_secs(30));
+        // peer.options.read_timeout          = Some(Duration::from_secs(300));
+        // peer.options.write_timeout         = Some(Duration::from_secs(300));
 
         debug!("peer: {:#?}", &peer);
 

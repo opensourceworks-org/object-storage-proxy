@@ -156,7 +156,7 @@ s3 =
 ~/.aws/credentials
 ```ini
 [osp]
-aws_access_key_id = MYLOCAL123  # <-- this could be an openid connect/oauth2 token or anything that makes sense for your business
+aws_access_key_id = MYLOCAL123  # <-- this could be an internal client identifier, to fetch openid connect/oauth2 token or anything that makes sense for your business
 aws_secret_access_key = nothingmeaningful # <-- private key to sign original request
 ```
 
@@ -227,7 +227,7 @@ def lookup_secret_key(access_key: str) -> str | None:
 def do_validation(token: str, bucket: str) -> bool:
     """ Authorize the request based on token for the given bucket. 
         You can plug in your own authorization service here.
-        The token is the authorization token passed in the request.
+        The token is a client identifier used to fetch an authorization token and further authenticate/authorize.
         The bucket is the bucket name.
         The function should return True if the request is authorized, False otherwise.
     """
