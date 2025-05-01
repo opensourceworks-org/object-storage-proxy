@@ -269,12 +269,12 @@ impl ProxyHttp for MyProxy {
         let addr = (endpoint.clone(), port);
 
         let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
-        peer.options.alpn = ALPN::H2;
+
+        // todo: make ths configurable
 
         peer.options.max_h2_streams = 32;
         peer.options.h2_ping_interval = Some(Duration::from_secs(30));
 
-        // todo: make ths configurable
 
         // peer.options.idle_timeout          = Some(Duration::from_secs(300));
         // peer.options.connection_timeout    = Some(Duration::from_secs(30));
@@ -635,6 +635,8 @@ impl ProxyHttp for MyProxy {
             "x-amz-content-sha256",
             "x-amz-security-token",
             "range",
+            "trailer",
+            "x-amz-trailer",
         ];
 
         let to_check: Vec<String> = upstream_request

@@ -103,6 +103,8 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
                 "range",
                 "x-amz-content-sha256",
                 "x-amz-security-token",
+                "trailer",
+                "x-amz-trailer",
             ]
         };
         
@@ -358,6 +360,7 @@ pub(crate) async fn sign_request(
         // empty body → empty slice
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" => &[], // sha256 hash of empty string
         "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
+        "STREAMING-UNSIGNED-PAYLOAD-TRAILER" => b"STREAMING-UNSIGNED-PAYLOAD-TRAILER",
         // unreachable code
         _ => &[],
     };
