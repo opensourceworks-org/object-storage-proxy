@@ -1,14 +1,20 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+pub(crate) use chrono::{DateTime, NaiveDateTime, Utc};
 use http::header::HeaderMap;
 use pingora::{http::RequestHeader, proxy::Session};
+use ring::hmac;
 use sha256::digest;
 use tracing::{debug, error};
-use std::{collections::{HashMap, HashSet}, fmt};
+use std::{collections::{HashMap, HashSet}, fmt, io};
 use url::Url;
+use pin_project_lite::pin_project;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use futures::{StreamExt, TryStreamExt, Stream};
+use futures::FutureExt;    
 
-use ring::hmac;
 
-use bytes::{Bytes, BytesMut};
+use bytes::{Bytes, BytesMut, BufMut};
 
 use crate::parsers::{cos_map::CosMapItem, credentials::{parse_credential_scope, parse_token_from_header}};
 
@@ -251,6 +257,9 @@ where
             ov.clone()
         } else if self.body == b"UNSIGNED-PAYLOAD" {
             "UNSIGNED-PAYLOAD".into()
+        } else if self.body == b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
+            // NEW: forward the literal marker for chunk-signed streams
+            "STREAMING-AWS4-HMAC-SHA256-PAYLOAD".into()
         } else {
             digest(self.body)
         };
@@ -431,6 +440,7 @@ pub(crate) async fn sign_request(
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" => &[], // sha256 hash of empty string
         "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
         "STREAMING-UNSIGNED-PAYLOAD-TRAILER" => b"STREAMING-UNSIGNED-PAYLOAD-TRAILER",
+        "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" => b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
         // unreachable code
         _ => &[],
     };
@@ -558,6 +568,9 @@ pub async fn signature_is_valid_for_request(
 
     let (body_bytes, payload_override) = if content_sha256 == "UNSIGNED-PAYLOAD" {
         (b"UNSIGNED-PAYLOAD" as &[u8], None)
+    } else if content_sha256 == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
+        (b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD".as_ref(),
+         Some("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".to_string()))
     } else {
         // we don't have the raw body here, but we do have its hash:
         // tell AwsSign to use this string directly
@@ -793,6 +806,385 @@ pub async fn wrap_streaming_body(
     session.write_response_body(Some(body), end_of_stream).await?;
 
     Ok(())
+}
+
+const EMPTY_HASH: &str =
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/// Handles running signature state for AWS-chunked uploads
+pub struct ChunkSigner {
+    signing_key: Vec<u8>,
+    scope: String,
+    ts: String,
+    prev_sig: String,
+}
+
+impl ChunkSigner {
+    /// Create a new signer.  
+    /// *`seed_signature`* is the **signature you put in the `Authorization` header**
+    pub fn new(
+        signing_key: Vec<u8>,
+        scope: String,
+        ts: String,
+        seed_signature: String,
+    ) -> Self {
+        Self {
+            signing_key,
+            scope,
+            ts,
+            prev_sig: seed_signature,
+        }
+    }
+
+    /// Sign one payload chunk and return the wire bytes **and** update internal state.
+    pub fn sign_chunk(
+        &mut self,
+        chunk: Bytes,
+    ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+        // 1. Hash of the chunk payload
+        let chunk_hash = hex::encode(sha256::digest(chunk.as_ref()));
+
+        // 2. String to sign for this chunk (AWS spec §4)
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256-PAYLOAD\n{}\n{}\n{}\n{}\n{}",
+            self.ts,
+            self.scope,
+            self.prev_sig,
+            EMPTY_HASH, // hash of empty string
+            chunk_hash
+        );
+
+        // 3. HMAC with the derived signing key
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.signing_key);
+        let sig = hex::encode(hmac::sign(&key, string_to_sign.as_bytes()));
+
+        // 4. Build the chunk header:  "<hexlen>;chunk-signature=<sig>\r\n"
+        let mut buf = BytesMut::with_capacity(chunk.len() + 128);
+        buf.put(format!("{:x};chunk-signature={}\r\n", chunk.len(), sig).as_bytes());
+        buf.put(chunk);
+        buf.put_slice(b"\r\n");
+
+        // 5. advance running signature
+        self.prev_sig = sig;
+
+        Ok(buf.freeze())
+    }
+
+    /// Final 0-length chunk (must be sent after the body)
+    pub fn final_chunk(
+        &mut self,
+    ) -> Bytes {
+        // sign an empty payload chunk (same steps, len = 0)
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256-PAYLOAD\n{}\n{}\n{}\n{}\n{}",
+            self.ts,
+            self.scope,
+            self.prev_sig,
+            EMPTY_HASH,
+            EMPTY_HASH
+        );
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.signing_key);
+        let sig = hex::encode(hmac::sign(&key, string_to_sign.as_bytes()));
+
+        Bytes::from(format!("0;chunk-signature={}\r\n\r\n", sig))
+    }
+}
+
+pub fn resign_streaming_request(
+    req: &mut RequestHeader,
+    region: &str,
+    access_key: &str,
+    secret_key: &str,
+    ts: DateTime<Utc>,
+) -> Result<(), Box<dyn std::error::Error>> {
+
+    // let ts = chrono::Utc::now();
+    req.insert_header("x-amz-date", ts.format("%Y%m%dT%H%M%SZ").to_string())?;
+
+    let url = req.uri.to_string();
+    let signer = AwsSign::new(
+        req.method.as_str(),
+        &url,
+        &ts,
+        &req.headers,
+        region,
+        access_key,
+        secret_key,
+        "s3",
+        b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
+        None,
+    );
+
+
+    let auth = signer.sign();
+    req.insert_header("authorization", auth)?;
+
+    Ok(())
+}
+
+
+/// Maximum chunk payload we read from the client before signing.
+/// (4 MiB is what the Java/AWS SDKs use, but any size works.)
+const DEFAULT_CHUNK: usize = 4 * 1024 * 1024;
+
+// pub fn wrap_streaming_body_reader<R>(
+//     body_reader: R,
+//     signing_key: Vec<u8>,
+//     scope: String,
+//     ts: String,
+//     seed_signature: String,
+// ) -> impl Stream<Item = Result<bytes::Bytes, std::io::Error>>
+// where
+//     R: Stream<Item = Result<bytes::Bytes, pingora::Error>> + Unpin + Send + 'static,
+// {
+//     // sign_chunk is your function that prepends the S3 chunk header & signature
+//     body_reader
+//         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+//         .and_then(move |chunk| async move {
+//             Ok(ChunkSigner::sign_chunk(
+//                 chunk,
+//                 &signing_key,
+//                 &scope,
+//                 &ts,
+//                 &seed_signature,
+//             )?)
+//         })
+// }
+
+// pin_project! {
+//     pub struct StreamingSignerReader<R> {
+//         #[pin] inner: R,
+//         buf: BytesMut,
+//         region: String,
+//         access_key: String,
+//         secret_key: String,
+//         ts: chrono::DateTime<chrono::Utc>,
+//         prior_signature: String,
+//         eof: bool,
+//     }
+// }
+
+// impl<R> StreamingSignerReader<R>
+// where
+//     R: AsyncRead + Unpin,
+// {
+//     pub fn new(
+//         inner: R,
+//         region: String,
+//         access_key: String,
+//         secret_key: String,
+//         ts: chrono::DateTime<chrono::Utc>,
+//         seed_sig: String,
+//     ) -> Self {
+//         Self {
+//             inner,
+//             buf: BytesMut::new(),
+//             region,
+//             access_key,
+//             secret_key,
+//             ts,
+//             prior_signature: seed_sig,
+//             eof: false,
+//         }
+//     }
+
+//     /// Read *one* chunk payload from `inner`, sign it and stage it in `buf`.
+//     async fn fill_buf(mut self: Pin<&mut Self>) -> std::io::Result<()> {
+//         if self.eof {
+//             return Ok(());
+//         }
+
+//         let mut payload = vec![0u8; DEFAULT_CHUNK];
+//         let n = self.inner.read(&mut payload).await?;
+//         if n == 0 {
+//             // Final 0-length chunk
+//             self.stage_chunk(Bytes::new());
+//             self.eof = true;
+//             return Ok(());
+//         }
+//         payload.truncate(n);
+//         self.stage_chunk(Bytes::from(payload));
+//         Ok(())
+//     }
+
+//     fn stage_chunk(&mut self, payload: Bytes) {
+//         // 1/ compute SHA-256 hash of the chunk payload
+//         let chunk_hash = sha256::digest(payload.as_ref());
+
+//         // 2/ build canonical string for the *chunk*
+//         //    https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
+//         let string_to_sign = format!(
+//             "AWS4-HMAC-SHA256-PAYLOAD\n{}\n{}/s3/aws4_request\n{}\n{}\n{}",
+//             self.ts.format("%Y%m%dT%H%M%SZ"),
+//             self.ts.format("%Y%m%d"),
+//             self.prior_signature,
+//             hex::encode([0u8; 32]), // empty-string hash for headers
+//             chunk_hash
+//         );
+
+//         // 3/ get signing key for the day and region
+//         let sig_key = signing_key(&self.ts, &self.secret_key, &self.region, "s3")
+//             .expect("streaming key");
+
+//         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &sig_key);
+//         let tag = ring::hmac::sign(&key, string_to_sign.as_bytes());
+//         let signature_hex = hex::encode(tag);
+
+//         // 4/ assemble chunk: <hexlen>;<sig>\r\n<payload>\r\n
+//         let mut chunk = BytesMut::new();
+//         let len_hex = format!("{:x}", payload.len());
+//         chunk.extend_from_slice(len_hex.as_bytes());
+//         chunk.extend_from_slice(b";chunk-signature=");
+//         chunk.extend_from_slice(signature_hex.as_bytes());
+//         chunk.extend_from_slice(b"\r\n");
+//         chunk.extend_from_slice(&payload);
+//         chunk.extend_from_slice(b"\r\n");
+
+//         self.prior_signature = signature_hex;
+//         self.buf.extend_from_slice(&chunk);
+//     }
+// }
+
+// impl<R: AsyncRead + Unpin> AsyncRead for StreamingSignerReader<R> {
+//     fn poll_read(
+//         self: Pin<&mut Self>,
+//         cx: &mut Context<'_>,
+//         out: &mut tokio::io::ReadBuf<'_>,
+//     ) -> Poll<std::io::Result<()>> {
+//         // 1. fast-path: drain any buffered bytes
+//         {
+//             let this = self.as_ref().project();
+//             if !this.buf.is_empty() {
+//                 let n = std::cmp::min(out.remaining(), this.buf.len());
+//                 out.put_slice(&this.buf.split_to(n));
+//                 return Poll::Ready(Ok(()));
+//             }
+//         }
+
+//         // 2. refill the buffer
+//         let mut fut = Box::pin(self.as_mut().fill_buf());      // <-- changed line
+//         futures::ready!(fut.as_mut().poll(cx))?;
+
+//         // 3. project again to copy freshly-staged data to `out`
+//         let this = self.project();
+//         if this.buf.is_empty() {
+//             return Poll::Ready(Ok(())); // EOF
+//         }
+//         let n = std::cmp::min(out.remaining(), this.buf.len());
+//         out.put_slice(&this.buf.split_to(n));
+//         Poll::Ready(Ok(()))
+//     }
+// }
+
+
+#[derive(Debug)]
+pub struct StreamingState {
+    region: String,
+    access_key: String,
+    secret_key: String,
+    ts: chrono::DateTime<chrono::Utc>,
+    prior_sig: String,
+    signing_key: Vec<u8>,
+}
+
+impl StreamingState {
+    pub fn new(
+        region: String,
+        access_key: String,
+        secret_key: String,
+        ts: chrono::DateTime<chrono::Utc>,
+        seed_signature: String,
+    ) -> Self {
+        let signing_key = signing_key(&ts, &secret_key, &region, "s3")
+            .expect("signing key");
+        Self {
+            region,
+            access_key,
+            secret_key,
+            ts,
+            prior_sig: seed_signature,
+            signing_key,
+        }
+    }
+
+    pub fn sign_chunk(&mut self, payload: &[u8]) -> io::Result<Bytes> {
+        let sig = compute_chunk_signature(
+            payload,
+            &self.signing_key,
+            &self.prior_sig,
+            &self.ts,
+            &self.region,
+        )?;
+        self.prior_sig = sig.clone();
+        Ok(build_chunk_frame(payload, &sig))
+    }
+    
+    pub fn final_chunk(&mut self) -> io::Result<Bytes> {
+        let sig = compute_chunk_signature(
+            &[],
+            &self.signing_key,
+            &self.prior_sig,
+            &self.ts,
+            &self.region,
+        )?;
+        Ok(build_chunk_frame(&[], &sig))
+    }
+}
+
+
+// fn sha256_hex(data: &[u8]) -> String {
+//     let mut hasher = Sha256::new();
+//     hasher.update(data);
+//     hex::encode(hasher.finalize())
+// }
+
+fn sha256_hex(data: &[u8]) -> String {
+    sha256::digest(data)
+}
+
+/// Pre‑computed because it is constant for every chunk.
+const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/// Calculate the per‑chunk signature (section *Defining the Chunk Body* of the
+/// AWS doc).  
+/// * `signing_key` is the value you built once from the secret key  
+/// * `prior_sig`  is the *seed* (first chunk) or the previous chunk’s signature
+fn compute_chunk_signature(
+    payload: &[u8],
+    signing_key: &[u8],
+    prior_sig: &str,
+    ts: &DateTime<Utc>,
+    region: &str,
+) -> io::Result<String> {
+    // 1️⃣  Build the String‑To‑Sign
+    let time = ts.format("%Y%m%dT%H%M%SZ").to_string();
+    let scope = format!("{}/{}/s3/aws4_request", ts.format("%Y%m%d"), region);
+
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256-PAYLOAD\n{}\n{}\n{}\n{}\n{}",
+        time,
+        scope,
+        prior_sig,
+        EMPTY_SHA256,             // SHA256("")
+        sha256_hex(payload),
+    );
+
+    // 2️⃣  HMAC it
+    let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
+    let sig = hmac::sign(&key, string_to_sign.as_bytes());
+    Ok(hex::encode(sig.as_ref()))
+    
+}
+
+/// Wrap a signed payload frame into the final on‑the‑wire representation.
+fn build_chunk_frame(payload: &[u8], sig: &str) -> Bytes {
+    let mut buf = BytesMut::with_capacity(payload.len() + sig.len() + 64);
+    // <hexlen>;chunk-signature=<sig>\r\n
+    use std::fmt::Write;
+    write!(&mut buf, "{:x};chunk-signature={}\r\n", payload.len(), sig).unwrap();
+    buf.extend_from_slice(payload);
+    buf.extend_from_slice(b"\r\n");
+    buf.freeze()
 }
 
 

@@ -7,3 +7,4 @@
 *.pem
 */with_*.log
 troubleshooting/
+*.log

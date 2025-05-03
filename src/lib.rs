@@ -1,6 +1,7 @@
 #![warn(clippy::all)]
 use async_trait::async_trait;
-use credentials::signer::{signature_is_valid_for_presigned, signature_is_valid_for_request, wrap_streaming_body};
+use bytes::BytesMut;
+use credentials::signer::{self, resign_streaming_request, signature_is_valid_for_presigned, signature_is_valid_for_request, signing_key};
 use dotenv::dotenv;
 use http::Uri;
 use http::uri::Authority;
@@ -20,6 +21,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -29,8 +31,6 @@ use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
 
-use tokio_util::io::StreamReader;
-use futures::TryStreamExt;
 
 pub mod parsers;
 use parsers::credentials::{parse_presigned_params, parse_token_from_header};
@@ -39,11 +39,12 @@ use parsers::path::parse_path;
 pub mod credentials;
 use credentials::{
     secrets_proxy::{SecretsCache, get_bearer, get_credential_for_bucket},
-    signer::sign_request,
+    signer::sign_request
 };
 
 pub mod utils;
 use utils::validator::{AuthCache, validate_request};
+
 
 static REQ_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -203,7 +204,14 @@ pub struct MyCtx {
     bucket_creds_fetcher: Option<PyObject>,
     hmac_fetcher: Option<PyObject>,
     is_presigned: Option<bool>,
+    stream_state: Option<signer::StreamingState>,
     
+}
+
+impl MyCtx {
+    fn streaming(&mut self) -> &mut signer::StreamingState {
+        self.stream_state.as_mut().expect("stream_state not initialised")
+    }
 }
 
 #[async_trait]
@@ -228,6 +236,7 @@ impl ProxyHttp for MyProxy {
                 .as_ref()
                 .map(|v| Python::with_gil(|py| v.clone_ref(py))),
             is_presigned: None,
+            stream_state: None,
         }
     }
 
@@ -699,19 +708,54 @@ impl ProxyHttp for MyProxy {
                     .to_string();
 
                 let region = bucket_config.as_ref().unwrap().region.as_ref().unwrap_or(&String::new()).to_string();
+                // let decoded_len = upstream_request
+                //     .headers
+                //     .get("x-amz-decoded-content-length")
+                //     .and_then(|v| v.to_str().ok())
+                //     .unwrap_or("0")
+                //     .to_owned();
 
-                wrap_streaming_body(
-                    session,
+                // 1. Remove the original streaming headers we cannot forward.
+                // upstream_request.remove_header("x-amz-decoded-content-length");
+                
+                // 2. Tell the backend we will stream‑chunk.
+                upstream_request.remove_header("content-length");
+                upstream_request.insert_header("transfer-encoding", "chunked")?;
+                // upstream_request.insert_header("x-amz-decoded-content-length", decoded_len)?;
+                upstream_request.set_send_end_stream(false);
+                
+                // 3. Produce *seed* signature and signing key that will be reused
+                //    for every DATA frame in the forthcoming request_body_filter.
+                let ts = chrono::Utc::now();
+                resign_streaming_request(
                     upstream_request,
                     &region,
                     &access_key,
                     &secret_key,
-                )
-                .await.map_err(|e| {
-                    error!("Failed to wrap streaming body: {e}");
-                    pingora::Error::new_str("Failed to wrap streaming body")
+                    ts,
+                ).map_err(|e| {
+                    error!("Failed to sign request: {e}");
+                    pingora::Error::new_str("Failed to sign request")
                 })?;
-                dbg!("streaming signature!!");
+                
+                let seed_sig = upstream_request
+                    .headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.split("Signature=").nth(1))
+                    .expect("seed signature missing")
+                    .to_owned();
+                
+                // 4. Stash everything the body filter will need.
+                ctx.stream_state = Some(
+                    signer::StreamingState::new(
+                        region.to_string(),
+                        access_key.to_string(),
+                        secret_key.to_string(),
+                        ts,
+                        seed_sig,
+                    )
+                );                
             } else {
                 sign_request(upstream_request, bucket_config.as_ref().unwrap())
                     .await
@@ -768,6 +812,98 @@ impl ProxyHttp for MyProxy {
 
         let _ = resp.insert_header("Server", "Object-Storage-Proxy");
 
+        Ok(())
+    }
+
+    // #[async_trait]
+    async fn request_body_filter(
+        &self,
+        _session: &mut Session,
+        body: &mut Option<bytes::Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<()> {
+        // Only operate when we previously detected a streaming upload.
+        if ctx.stream_state.is_none() {
+            return Ok(());
+        }
+
+        // // DATA frame could legitimately be empty (keep‑alive flush); ignore it.
+        // let Some(payload) = body.take() else {
+        //     return Ok(());
+        // };
+        let Some(payload) = body.take() else { return Ok(()); };
+        
+        // ⚠️  Pingora "flush": ignore, do NOT advance signature.
+        // if payload.is_empty() && !end_of_stream {
+        //     *body = Some(payload);          // pass the flush straight through
+        //     return Ok(());
+        // }
+
+        if payload.is_empty() && !end_of_stream {
+            // flush frame: drop the frame: do NOT send anything and do NOT advance signature
+            return Ok(());
+        }
+
+        let mut out = BytesMut::new();
+
+        // --- sign & wrap --------------------------------------------------------
+        // let signed = ctx.streaming().sign_chunk(&payload).map_err(|e| {
+        //     error!("Failed to sign chunk: {e}");
+        //     pingora::Error::new_str("Failed to sign chunk")
+        // })?;
+        // *body = Some(signed);
+
+        // -----------------------------------------------------------------------
+        // if end_of_stream {
+        //     // Add the mandatory 0‑length trailer
+        //     let trailer = ctx.streaming().final_chunk().map_err(|e| {
+        //         error!("Failed to sign trailer: {e}");
+        //         pingora::Error::new_str("Failed to sign trailer")
+        //     })?;    
+        //     // Pingora will call us again with end_of_stream=true but no payload,
+        //     // so we stuff the trailer into *body* *this* time and return Ok(()):
+        //     *body = Some(trailer);
+        //     // drop the state so any further frames are passed through unmodified
+        //     ctx.stream_state = None;
+        // }
+
+        if !payload.is_empty() {
+            out.extend_from_slice(&ctx.streaming().sign_chunk(&payload).map_err(|e| {
+                error!("Failed to sign chunk: {e}");
+                pingora::Error::new_str("Failed to sign chunk")
+            })?);
+        }
+            // let out = ctx.streaming().sign_chunk(&payload).map_err(|e| {
+            //     error!("Failed to sign chunk: {e}");
+            //     pingora::Error::new_str("Failed to sign chunk")
+            // })?;
+            // let mut mut_out = BytesMut::from(out);
+            // // append trailer if this is the last frame
+            // if end_of_stream {
+            //     let trailer = ctx.streaming().final_chunk().map_err(|e| {
+            //         error!("Failed to sign trailer: {e}");
+            //         pingora::Error::new_str("Failed to sign trailer")
+            //     })?;
+            //     mut_out.extend_from_slice(&trailer);
+            //     ctx.stream_state = None;          // done with this upload
+            // }
+            // *body = Some(mut_out.freeze());
+        if end_of_stream {
+            out.extend_from_slice(&ctx.streaming().final_chunk().map_err(|e| {
+                error!("Failed to sign trailer: {e}");
+                pingora::Error::new_str("Failed to sign trailer")
+            })?);
+            ctx.stream_state = None;  
+            // // no payload, just the terminating 0‑chunk
+            // *body = Some(ctx.streaming().final_chunk().map_err(|e| {
+            //     error!("Failed to sign trailer: {e}");
+            //     pingora::Error::new_str("Failed to sign trailer")
+            // })?);
+            // ctx.stream_state = None;
+
+        }
+        *body = Some(out.freeze());
         Ok(())
     }
 
