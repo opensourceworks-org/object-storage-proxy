@@ -395,3 +395,5 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [x] option to disable upstream/peer certificate validation (for development, not production!)
 - [ ] expose pingora proxy server and services configuration to python
 - [x] drop proxy headers (x-forwarded-proto, x-forwarded-host, ..) for signing
+- [ ] https://github.com/aws/aws-cli/issues/9214
+- [ ] spark streaming to cos
