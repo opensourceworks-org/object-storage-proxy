@@ -692,6 +692,8 @@ impl ProxyHttp for MyProxy {
             };
 
             if streaming {
+                dbg!("STREAMING UPLOAD");
+                dbg!("*".repeat(2000));
                 // let auth_header = session
                 //     .req_header()
                 //     .headers
@@ -757,6 +759,14 @@ impl ProxyHttp for MyProxy {
                     )
                 );                
             } else {
+                // let is_ibm = endpoint.contains("cloud-object-storage.appdomain.cloud");
+                // if is_ibm {
+                //     // instead of chunked streaming, compute the SHA256 of the full part
+                //     upstream_request.remove_header("transfer-encoding");
+                //     // upstream_request.remove_header("content-length");
+                //     upstream_request.insert_header("x-amz-content-sha256", "UNSIGNED-PAYLOAD")?;
+                //     // sign_request will now use the standard (non–streaming) path
+                // }
                 sign_request(upstream_request, bucket_config.as_ref().unwrap())
                     .await
                     .map_err(|e| {

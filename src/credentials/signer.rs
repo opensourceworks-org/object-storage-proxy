@@ -1,5 +1,5 @@
 pub(crate) use chrono::{DateTime, NaiveDateTime, Utc};
-use http::header::HeaderMap;
+use http::{header::HeaderMap, HeaderValue, Request};
 use pingora::{http::RequestHeader, proxy::Session};
 use ring::hmac;
 use sha256::digest;
@@ -901,6 +901,7 @@ pub fn resign_streaming_request(
     // let ts = chrono::Utc::now();
     req.insert_header("x-amz-date", ts.format("%Y%m%dT%H%M%SZ").to_string())?;
 
+
     let url = req.uri.to_string();
     let signer = AwsSign::new(
         req.method.as_str(),
@@ -1186,6 +1187,7 @@ fn build_chunk_frame(payload: &[u8], sig: &str) -> Bytes {
     buf.extend_from_slice(b"\r\n");
     buf.freeze()
 }
+
 
 
 #[cfg(test)]
