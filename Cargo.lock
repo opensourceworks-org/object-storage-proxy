@@ -1705,6 +1705,7 @@ version = "0.3.11"
 dependencies = [
  "async-stream",
  "async-trait",
+ "base64",
  "bytes",
  "chrono",
  "clap 4.5.37",
