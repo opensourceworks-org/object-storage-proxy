@@ -1,0 +1,68 @@
+
+services:
+  trino-coordinator:
+    image: 'trinodb/trino:latest'
+    hostname: trino-coordinator
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./coordinator/etc:/etc/trino
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx4G"
+
+  trino-worker:
+    image: trinodb/trino:latest
+    # hostname is optional when scaling; containers will be named trino-worker_1, trino-worker_2
+    volumes:
+      - ./worker/etc:/etc/trino
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx4G"
+      # point each worker at the coordinator’s discovery endpoint
+      DISCOVERY_SERVER: 'http://trino-coordinator:8080'
+      # tell Trino this is a worker
+      NODE_ENV: 'worker'
+    depends_on:
+      - trino-coordinator
+
+  postgres:
+    image: 'postgres:latest'
+    hostname: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: metastore_db
+
+  hive-metastore:
+    image: 'apache/hive:4.0.0'
+    hostname: hive-metastore
+    # entrypoint: ["/bin/bash", "-c", "sleep 1000"]
+    ports:
+      - '9083:9083' # Metastore Thrift
+    volumes:
+      - ./conf/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+      - ./lib/postgresql-42.7.4.jar:/opt/hive/lib/postgres.jar:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      HIVE_AUX_JARS_PATH: /opt/hive/lib/postgres.jar:/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar:/opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      SERVICE_OPTS: '
+        -Xmx1G 
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/metastore_db
+        -Djavax.jdo.option.ConnectionUserName=hive
+        -Djavax.jdo.option.ConnectionPassword=password'
+        #-Dhive.metastore.warehouse.dir=seaweedfs://s3:9333/hive/warehouse
+
+    depends_on:
+      - postgres
+
+
+volumes:
+  data:
+    driver: local

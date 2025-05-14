@@ -368,8 +368,11 @@ See the included [python test script](https://github.com/opensourceworks-org/obj
 Create self-signed certificates and export the environment variables:
 
 ```bash
-openssl req -x509 -newkey rsa:4096 -sha256 -nodes \
-        -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+openssl req -x509 -nodes -days 365 \
+  -newkey rsa:4096 \
+  -keyout key.pem \
+  -out cert.pem \
+  -config localhost.cnf
 ```
 
 ```bash
