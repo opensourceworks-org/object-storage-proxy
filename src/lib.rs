@@ -313,6 +313,18 @@ impl ProxyHttp for MyProxy {
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
 
+        dbg!(&session.request_summary());
+
+        dbg!(&session.req_header().uri);
+
+        let request_query = session.req_header().uri.query().unwrap_or("");
+        info!("request path: {}", session.req_header().uri.path());
+        info!("request query: {}", request_query);
+        info!("request method : {}", session.req_header().method);
+
+
+
+
         if session
             .req_header()
             .headers
