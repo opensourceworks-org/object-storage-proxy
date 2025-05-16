@@ -34,7 +34,7 @@ use tracing_subscriber::fmt::time::ChronoLocal;
 
 pub mod parsers;
 use parsers::credentials::{parse_presigned_params, parse_token_from_header};
-use parsers::path::parse_path;
+use parsers::path::{parse_path, parse_query};
 
 pub mod credentials;
 use credentials::{
@@ -321,6 +321,20 @@ impl ProxyHttp for MyProxy {
         info!("request path: {}", session.req_header().uri.path());
         info!("request query: {}", request_query);
         info!("request method : {}", session.req_header().method);
+
+        let parsed_query_result = parse_query(request_query);
+        if parsed_query_result.is_err() {
+            error!("Failed to parse query: {:?}", parsed_query_result);
+            return Err(pingora::Error::new_str("Failed to parse query"));
+        }
+        let (rest, query_dict) = parsed_query_result.unwrap();
+        if rest.is_empty() {
+            info!("Parsed query: {:#?}", query_dict);
+        } else {
+            error!("Failed to parse query: {}", rest);
+        }
+
+        info!("Parsed query: {:#?}", query_dict);
 
 
 
