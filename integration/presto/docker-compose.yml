@@ -1,0 +1,99 @@
+
+services:
+  hive-metastore:
+    image: 192.168.0.65:5000/myhive:4.0.0
+    container_name: hive-metastore
+    # Launch Hive’s Thrift metastore service using embedded Derby
+    # command: ["hive", "--service", "metastore"]
+    ports:
+      - "9083:9083"
+      - 10000:10000
+      - 10002:10002
+    environment:
+      SERVICE_NAME: metastore
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_ENDPOINT_URL: http://host.docker.internal:6190
+    volumes:
+    #   # Hive configuration (including hive-site.xml)
+      - ./hive-conf:/opt/hive/conf
+    #   # Persist Derby’s metastore DB across restarts
+    #   - ./metastore_db:/opt/hive/metastore_db
+    #  - ./jars:/opt/hive/aws-jars
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9083"]
+      interval: 10s
+      retries: 5
+
+  presto:
+    image: prestodb/presto:latest
+    container_name: presto
+    mem_limit: 4g
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    ports:
+      - "8080:8080"                  # host 8001 → container 8080
+    # depends_on:
+    #   hive-metastore:
+    #     condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      # Mount your Presto configs into /opt/presto/etc where Presto actually looks
+      - ./etc:/opt/presto-server/etc
+      # - ./config.properties:/opt/presto-server/etc/config.properties
+      # - ./jvm.config:/opt/presto-server/etc/jvm.config
+      # - ./etc/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      # # Mount your Hadoop/S3 settings
+      # - ./hadoop-conf:/opt/presto-server/etc/hadoop-conf
+      # - ./hive-conf:/opt/presto-server/etc/hive-conf
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      # Inside the container, Presto listens on 8080, so check that
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 10s
+      retries: 5
+
+  presto-worker:
+    image: prestodb/presto:latest
+    mem_limit: 4g
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    # hostname is optional when scaling; containers will be named trino-worker_1, trino-worker_2
+    volumes:
+      - ./worker/etc:/opt/presto-server/etc
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx4G"
+      # point each worker at the coordinator’s discovery endpoint
+      DISCOVERY_SERVER: 'http://presto:8080'
+      # tell Trino this is a worker
+      NODE_ENV: 'worker'
+    depends_on:
+      - presto
+volumes:
+  hive-metastore-data:
+  
+  # Optional: run the CLI in its own service for convenience
+  # presto-cli:
+  #   image: prestodb/presto:latest
+  #   depends_on:
+  #     presto:
+  #       condition: service_healthy
+  #   entrypoint: ["/opt/presto/bin/presto"]
+  #   tty: true
+  #   stdin_open: true
+  #   command:
+  #     - "--server"
+  #     - "presto:8080"
+  #     - "--catalog"
+  #     - "hive"
+  #     - "--schema"
+  #     - "default"

@@ -6,13 +6,6 @@ use sha256::digest;
 use tracing::{debug, error};
 use std::{collections::{HashMap, HashSet}, fmt, io};
 use url::Url;
-use pin_project_lite::pin_project;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncReadExt};
-use futures::{StreamExt, TryStreamExt, Stream};
-use futures::FutureExt;    
-
 
 use bytes::{Bytes, BytesMut, BufMut};
 
@@ -699,7 +692,7 @@ pub async fn signature_is_valid_for_presigned(
 
     debug!("body_bytes: {:?}", body_bytes);
 
-    // Collect signed headers list
+    // collect signed headers list
     let signed_headers = params
         .get("X-Amz-SignedHeaders")
         .unwrap()
@@ -728,7 +721,7 @@ pub async fn signature_is_valid_for_presigned(
 
 
     debug!("signed_headers: {:?}", signed_headers);
-    // Delegate to core validator
+    // delegate to core validator
     signature_is_valid_core(
         session.req_header().method.as_str(),
         &provided_signature,
@@ -748,13 +741,13 @@ pub async fn signature_is_valid_for_presigned(
 
 
 /// Build a stream whose items are *already* wrapped in
-/// “AWS-chunk-signed” envelopes.
+/// "AWS-chunk-signed" envelopes.
 ///
-/// * `body`        – raw payload implementing `AsyncRead`  
-/// * `signing_key` – result of the usual `signing_key()` step  
-/// * `scope`       – e.g. `"20250501/eu-west-3/s3/aws4_request"`  
-/// * `ts`          – the `X-Amz-Date` you put in the header (`YYYYMMDDThhmmssZ`)  
-/// * `seed_sig`    – the `Signature=` value you computed for the
+/// * `body`        - raw payload implementing `AsyncRead`  
+/// * `signing_key` - result of the usual `signing_key()` step  
+/// * `scope`       - e.g. `"20250501/eu-west-3/s3/aws4_request"`  
+/// * `ts`          - the `X-Amz-Date` you put in the header (`YYYYMMDDThhmmssZ`)  
+/// * `seed_sig`    - the `Signature=` value you computed for the
 ///                   *headers* (the one that goes into `Authorization:`)
 ///
 /// ```text
@@ -820,7 +813,7 @@ pub struct ChunkSigner {
 }
 
 impl ChunkSigner {
-    /// Create a new signer.  
+    /// create a new signer.  
     /// *`seed_signature`* is the **signature you put in the `Authorization` header**
     pub fn new(
         signing_key: Vec<u8>,
@@ -836,7 +829,7 @@ impl ChunkSigner {
         }
     }
 
-    /// Sign one payload chunk and return the wire bytes **and** update internal state.
+    /// sign one payload chunk and return the wire bytes **and** update internal state.
     pub fn sign_chunk(
         &mut self,
         chunk: Bytes,
@@ -901,6 +894,7 @@ pub fn resign_streaming_request(
     // let ts = chrono::Utc::now();
     req.insert_header("x-amz-date", ts.format("%Y%m%dT%H%M%SZ").to_string())?;
 
+
     let url = req.uri.to_string();
     let signer = AwsSign::new(
         req.method.as_str(),
@@ -925,7 +919,7 @@ pub fn resign_streaming_request(
 
 /// Maximum chunk payload we read from the client before signing.
 /// (4 MiB is what the Java/AWS SDKs use, but any size works.)
-const DEFAULT_CHUNK: usize = 4 * 1024 * 1024;
+// const DEFAULT_CHUNK: usize = 4 * 1024 * 1024;
 
 // pub fn wrap_streaming_body_reader<R>(
 //     body_reader: R,
@@ -937,7 +931,7 @@ const DEFAULT_CHUNK: usize = 4 * 1024 * 1024;
 // where
 //     R: Stream<Item = Result<bytes::Bytes, pingora::Error>> + Unpin + Send + 'static,
 // {
-//     // sign_chunk is your function that prepends the S3 chunk header & signature
+//     // sign_chunk prepends the S3 chunk header & signature
 //     body_reader
 //         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 //         .and_then(move |chunk| async move {
@@ -1080,8 +1074,8 @@ const DEFAULT_CHUNK: usize = 4 * 1024 * 1024;
 #[derive(Debug)]
 pub struct StreamingState {
     region: String,
-    access_key: String,
-    secret_key: String,
+    _access_key: String,
+    _secret_key: String,
     ts: chrono::DateTime<chrono::Utc>,
     prior_sig: String,
     signing_key: Vec<u8>,
@@ -1099,8 +1093,8 @@ impl StreamingState {
             .expect("signing key");
         Self {
             region,
-            access_key,
-            secret_key,
+            _access_key: access_key,
+            _secret_key: secret_key,
             ts,
             prior_sig: seed_signature,
             signing_key,
@@ -1186,6 +1180,7 @@ fn build_chunk_frame(payload: &[u8], sig: &str) -> Bytes {
     buf.extend_from_slice(b"\r\n");
     buf.freeze()
 }
+
 
 
 #[cfg(test)]

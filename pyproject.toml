@@ -7,7 +7,7 @@ name = "object-storage-proxy"
 description = "<object-storage-proxy ⚡> Yet Another Object Storage Proxy"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Jeroen", email = "jeroen@flexworks.eu" }]
-license = "Personal Use License"
+license = { file = "LICENSE" }
 
 
 requires-python = ">=3.10"
@@ -34,7 +34,7 @@ members = ["integration"]
 dev = []
 
 [project.urls]
-Homepage = "https://github.com/opensourceworks-org/object-storage-proxy"
-Documentation = "https://github.com/opensourceworks-org/object-storage-proxy/blob/main/README.md"
+Homepage = "https://osp.flexworks.eu"
+Documentation = "https://osp.flexworks.eu"
 Repository = "https://github.com/opensourceworks-org/object-storage-proxy/tree/main"
 BugTracker = "https://github.com/opensourceworks-org/object-storage-proxy/issues"

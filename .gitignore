@@ -8,3 +8,4 @@
 */with_*.log
 troubleshooting/
 *.log
+integration/docker/jars/

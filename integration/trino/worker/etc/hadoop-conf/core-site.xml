@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>s3a://host.docker.internal:6190</value>
+  </property>
+  <property>
+    <name>fs.s3a.impl</name>
+    <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+  </property>
+  <property>
+    <name>fs.s3a.endpoint</name>
+    <value>host.docker.internal:6190</value>
+  </property>
+  <property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+  </property>
+  <!-- <property>
+    <name>fs.s3a.aws.credentials.provider</name>
+    <value>com.amazonaws.auth.DefaultAWSCredentialsProviderChain</value>
+  </property> -->
+  <!-- optional tuning -->
+  <property>
+    <name>fs.s3a.multipart.size</name>
+    <value>104857600</value>
+  </property>
+  <property>
+    <name>fs.s3a.max.connections</name>
+    <value>100</value>
+  </property>
+
+  <!-- S3A credentials: replace with your access key and secret key -->
+  <property>
+    <name>fs.s3a.access.key</name>
+    <value>MYLOCAL123</value>
+  </property>
+  <property>
+    <name>fs.s3a.secret.key</name>
+    <value>nonehehSxpKJB</value>
+  </property>
+  <property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+  </property>
+</configuration>
