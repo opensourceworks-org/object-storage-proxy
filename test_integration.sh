@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 
-cd /Users/jeroen/projects/mandelbrot
+# cd /Users/jeroen/projects/mandelbrot
 
-echo -e "\033[1;37mSSL\033[0m"
-echo -e "\033[1;34m---\033[0m\n"
+echo -e "AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED"
+export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+
+
+echo -e "\033[1;37m SSL (osps)\033[0m"
+echo -e "\033[1;34m ----------\033[0m\n"
 
 echo -e "\033[1;34mAWS\033[0m\n"
 echo "generate testfile"
@@ -107,8 +111,8 @@ else
     echo -e "\033[1;31mERROR\033[0m"
 fi
 
-echo -e "\n\033[1;37m no SSL\033[0m"
-echo -e "\n\033[1;37m ------\033[0m\n"
+echo -e "\n\033[1;37m no SSL (osp)\033[0m"
+echo -e "\n\033[1;37m ------------\033[0m\n"
 
 
 echo -e "\033[1;34mAWS\033[0m\n"
