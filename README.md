@@ -399,4 +399,4 @@ export TLS_KEY_PATH=/full/path/key.pem
 - [ ] expose pingora proxy server and services configuration to python
 - [x] exclude proxy headers (x-forwarded-proto, x-forwarded-host, ..) for signing
 - [ ] https://github.com/aws/aws-cli/issues/9214 (workaround: export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED)
-- [ ] spark streaming to cos 
+- [ ] spark streaming writes 
