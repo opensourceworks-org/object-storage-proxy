@@ -86,6 +86,15 @@ def main() -> None:
         raise ValueError("COS_API_KEY environment variable not set")
 
     cos_map = {
+        "tpch": {
+            "host": "biggie",
+            "region": "eu-de",
+            "port": 9000,
+            "access_key": "localkey",
+            "secret_key": "localpass",
+            "addressing_style": "path",
+            "is_tls_enabled": False,
+        },
         "bucket1": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
             "region": "eu-de",

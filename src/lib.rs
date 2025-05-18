@@ -266,8 +266,19 @@ impl ProxyHttp for MyProxy {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
+
+        let addressing_style = bucket_config.clone()
+            .and_then(|config| config.addressing_style)
+            .unwrap_or("virtual".to_string());
+
         let endpoint = match bucket_config.clone() {
-            Some(config) => format!("{}.{}", bucket, config.host.to_owned()),
+            Some(config) => {
+                if addressing_style == "path" {
+                    config.host.to_owned()
+                } else {
+                    format!("{}.{}", bucket, config.host)
+                }            
+            },
             None => {
                 format!("{}.{}", bucket, self.cos_endpoint)
             }
@@ -283,9 +294,11 @@ impl ProxyHttp for MyProxy {
             .and_then(|config| config.tls)
             .unwrap_or(true);
         
-        debug!("is_tls: {}", endpoint_is_tls);
+        dbg!("is_tls: {}", endpoint_is_tls);
+        dbg!("endpoint: {}", &endpoint);
 
         let mut peer = Box::new(HttpPeer::new(addr, endpoint_is_tls, endpoint.clone()));
+        dbg!("peer: {:#?}", &peer);
 
         // todo: make ths configurable
 
@@ -360,7 +373,7 @@ impl ProxyHttp for MyProxy {
             return Err(pingora::Error::new_str("Failed to parse path"));
         }
 
-        let (_, (bucket, _uri_path)) = parse_path(path).unwrap();
+        let (_, (bucket, _uri_path)) = parse_path_result.unwrap();
 
         let hdr_bucket = bucket.to_owned();
 
@@ -638,7 +651,13 @@ impl ProxyHttp for MyProxy {
         let _ = upstream_request.remove_header("accept-encoding");
 
         debug!("upstream_request_filter::start");
+
+
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
+
+        dbg!(&my_updated_url);
+
+
 
         let hdr_bucket = bucket.to_string();
 
@@ -652,12 +671,33 @@ impl ProxyHttp for MyProxy {
             map.get(&hdr_bucket).cloned()
         };
 
+        let addressing_style = bucket_config
+            .clone()
+            .and_then(|config| config.addressing_style)
+            .unwrap_or("virtual".to_string());
+
+
+        let this_url = match addressing_style.as_str() {
+            "virtual" => my_updated_url,
+            _ => {
+
+                let u_url = format!("/{}{}", bucket, my_updated_url);
+                dbg!("u_url: {}", &u_url);
+                &u_url.clone()
+            },
+        };
+
+
         let endpoint = match bucket_config.clone() {
             Some(cfg) => {
+                let this_host = match addressing_style.as_str() {
+                    "path" => cfg.host.to_owned(),
+                    _ => format!("{}.{}", bucket, cfg.host),
+                };
                 if cfg.port == 443 {
-                    format!("{}.{}", bucket, cfg.host)
+                    this_host
                 } else {
-                    format!("{}.{}:{}", bucket, cfg.host, cfg.port)
+                    format!("{}:{}", this_host, cfg.port)
                 }
             }
             None => format!("{}.{}", bucket, self.cos_endpoint),
@@ -667,15 +707,17 @@ impl ProxyHttp for MyProxy {
 
         // Box:leak the temporary string to get a static reference which will outlive the function
         let authority = Authority::from_static(Box::leak(endpoint.clone().into_boxed_str()));
+        // if addressing_style == "virtual" {
 
         let new_uri = Uri::builder()
             .scheme("https")
             .authority(authority.clone())
-            .path_and_query(my_updated_url.to_owned() + &my_query)
+            .path_and_query(this_url.to_owned() + &my_query)
             .build()
             .expect("should build a valid URI");
 
         upstream_request.set_uri(new_uri.clone());
+        // }
         upstream_request.insert_header("host", authority.as_str())?;
 
         let (maybe_hmac, maybe_api_key) = match &bucket_config {
@@ -845,7 +887,7 @@ impl ProxyHttp for MyProxy {
             upstream_request.insert_header("Authorization", format!("Bearer {bearer_token}"))?;
         }
 
-        debug!("Sending request to upstream: {}", &new_uri);
+        // debug!("Sending request to upstream: {}", &new_uri);
 
         debug!("Request sent to upstream.");
         debug!("upstream_request_filter::end");
