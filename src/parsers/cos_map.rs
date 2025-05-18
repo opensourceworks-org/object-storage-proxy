@@ -28,6 +28,7 @@ pub struct CosMapItem {
     pub access_key: Option<String>,
     pub secret_key: Option<String>,
     pub ttl: Option<u64>,
+    pub tls: Option<bool>,
 }
 
 impl CosMapItem {
@@ -119,6 +120,13 @@ pub(crate) fn parse_cos_map(
             None
         };
 
+        let tls = inner_map
+            .get("is_tls")
+            .or_else(|| inner_map.get("is_tls_enabled"))
+            .map(|v| v.extract(py))
+            .transpose()?;
+           
+
         let access_key = inner_map
             .get("access_key")
             .or_else(|| inner_map.get("accessKey"))
@@ -141,6 +149,7 @@ pub(crate) fn parse_cos_map(
                 access_key,
                 secret_key,
                 ttl,
+                tls,
             },
         );
     }

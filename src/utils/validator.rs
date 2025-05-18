@@ -1,6 +1,8 @@
-use pyo3::{PyObject, Python};
+use pyo3::{types::IntoPyDict, PyObject, Python};
+use rustls::crypto::hash::Hash;
 use tokio::{sync::Mutex, task};
 use tracing::{debug, error};
+use tracing_subscriber::field::debug;
 
 use std::{
     collections::HashMap,
@@ -107,10 +109,24 @@ impl AuthCache {
 pub async fn validate_request(
     token: &str,
     bucket: &str,
+    request: &HashMap<String, String>,
     callback: PyObject,
 ) -> Result<bool, String> {
     let token = token.to_string();
     let bucket = bucket.to_string();
+
+    let req = request
+        .into_iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect::<HashMap<String, String>>();
+
+    // let py_req = Python::with_gil(|py| {
+    //     let dict = req.into_py_dict(py);
+    //     dict.unwrap().clone()
+    // });
+
+    debug!("Python request: {:?}", req);
+
 
     let authorized = task::spawn_blocking(move || {
         Python::with_gil(

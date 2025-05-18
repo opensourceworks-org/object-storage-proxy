@@ -273,13 +273,18 @@ impl ProxyHttp for MyProxy {
             }
         };
 
-        let port = bucket_config
+        let port = bucket_config.clone()
             .and_then(|config| Some(config.port))
             .unwrap_or(443);
 
         let addr = (endpoint.clone(), port);
 
-        let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
+        let endpoint_is_tls = bucket_config
+            .and_then(|config| config.tls)
+            .unwrap_or(true);
+
+
+        let mut peer = Box::new(HttpPeer::new(addr, endpoint_is_tls, endpoint.clone()));
 
         // todo: make ths configurable
 
@@ -333,10 +338,7 @@ impl ProxyHttp for MyProxy {
             error!("Failed to parse query: {}", rest);
         }
 
-        info!("Parsed query: {:#?}", query_dict);
-
-
-
+        info!("---> Parsed query: {:#?}", query_dict);
 
         if session
             .req_header()
@@ -528,15 +530,20 @@ impl ProxyHttp for MyProxy {
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
             let move_access_key = access_key.clone();
+            let req = query_dict.clone();
+
             ctx.auth_cache
                 .get_or_validate(&cache_key, Duration::from_secs(ttl), move || {
                     let tk = move_access_key.clone();
                     let bu = bucket_clone.clone();
                     let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
+                    {
+                    let req_value = req.clone();
                     async move {
-                        validate_request(&tk, &bu, cb)
+                        validate_request(&tk, &bu, &req_value, cb)
                             .await
                             .map_err(|_| pingora::Error::new_str("Validator error"))
+                    }
                     }
                 })
                 .await?
