@@ -282,7 +282,8 @@ impl ProxyHttp for MyProxy {
         let endpoint_is_tls = bucket_config
             .and_then(|config| config.tls)
             .unwrap_or(true);
-
+        
+        debug!("is_tls: {}", endpoint_is_tls);
 
         let mut peer = Box::new(HttpPeer::new(addr, endpoint_is_tls, endpoint.clone()));
 
