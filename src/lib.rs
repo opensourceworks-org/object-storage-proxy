@@ -20,6 +20,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+// use utils::functions::inspect_callable_signature;
+
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -252,6 +254,7 @@ impl ProxyHttp for MyProxy {
 
         let path = session.req_header().uri.path();
 
+
         let parse_path_result = parse_path(path);
         if parse_path_result.is_err() {
             error!("Failed to parse path: {:?}", parse_path_result);
@@ -341,16 +344,34 @@ impl ProxyHttp for MyProxy {
         info!("request method : {}", session.req_header().method);
 
         let parsed_query_result = parse_query(request_query);
+
         if parsed_query_result.is_err() {
             error!("Failed to parse query: {:?}", parsed_query_result);
             return Err(pingora::Error::new_str("Failed to parse query"));
         }
-        let (rest, query_dict) = parsed_query_result.unwrap();
+        let (rest, mut query_dict) = parsed_query_result.unwrap();
         if rest.is_empty() {
             info!("Parsed query: {:#?}", query_dict);
         } else {
             error!("Failed to parse query: {}", rest);
         }
+
+        query_dict.insert("method".to_string(), session.req_header().method.to_string());
+        query_dict.insert("path".to_string(), session.req_header().uri.path().to_string());
+        // insert source
+        query_dict.insert(
+            "source".to_string(),
+            session
+                .req_header()
+                .headers
+                .get("x-forwarded-for")
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or_default()
+                .to_string(),
+        );
+
+
+
 
         info!("---> Parsed query: {:#?}", query_dict);
 
@@ -538,11 +559,12 @@ impl ProxyHttp for MyProxy {
                 }
             }
             info!("Signature check passed, continuing now onto the bespoke validation");
-            let cache_key = format!("{}:{}", &access_key, bucket);
+            let cache_key = format!("{}:{}:{:?}", &access_key, bucket, &query_dict);
             debug!("Cache key: {}", cache_key);
 
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
+
             let move_access_key = access_key.clone();
             let req = query_dict.clone();
 
@@ -552,12 +574,12 @@ impl ProxyHttp for MyProxy {
                     let bu = bucket_clone.clone();
                     let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
                     {
-                    let req_value = req.clone();
-                    async move {
-                        validate_request(&tk, &bu, &req_value, cb)
-                            .await
-                            .map_err(|_| pingora::Error::new_str("Validator error"))
-                    }
+                        let req_value = req.clone();
+                        async move {
+                            validate_request(&tk, &bu, &req_value, cb)
+                                .await
+                                .map_err(|_| pingora::Error::new_str("Validator error"))
+                        }
                     }
                 })
                 .await?

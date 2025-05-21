@@ -54,7 +54,7 @@ WITH order_stats AS (
     o.o_custkey   AS custkey,
     COUNT(*)      AS order_count,
     MAX(o.o_orderdate) AS last_order_date
-  FROM hive.default.orders AS o
+  FROM hive.default.orders_minio AS o
   GROUP BY
     o.o_custkey
   ORDER BY
@@ -67,7 +67,7 @@ SELECT
   os.order_count,
   os.last_order_date
 FROM order_stats AS os
-JOIN hive.default.customer AS c
+JOIN hive.default.customer_minio AS c
   ON os.custkey = c.c_custkey
 ORDER BY
   os.order_count DESC

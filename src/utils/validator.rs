@@ -124,13 +124,11 @@ pub async fn validate_request(
     //     let dict = req.into_py_dict(py);
     //     dict.unwrap().clone()
     // });
-
-    debug!("Python request: {:?}", req);
-
+    debug!("request details sent to Python callable: {:?}", &req);
 
     let authorized = task::spawn_blocking(move || {
         Python::with_gil(
-            |py| match callback.call1(py, (token.as_str(), bucket.as_str())) {
+            |py| match callback.call1(py, (token.as_str(), bucket.as_str(), &req)) {
                 Ok(result_obj) => result_obj
                     .extract::<bool>(py)
                     .map_err(|_| "Failed to extract boolean".to_string()),
