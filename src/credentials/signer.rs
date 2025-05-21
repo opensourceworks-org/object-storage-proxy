@@ -160,7 +160,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         //     })
         //     .collect();
         
-        debug!("{:#?}", &url);
+        dbg!("{:#?}", &url);
         let url: Url = url.parse().unwrap();
         // let headers: HashMap<String, String> = headers
         //     .iter()

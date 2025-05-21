@@ -20,6 +20,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+// use utils::functions::inspect_callable_signature;
+
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -252,13 +254,14 @@ impl ProxyHttp for MyProxy {
 
         let path = session.req_header().uri.path();
 
+
         let parse_path_result = parse_path(path);
         if parse_path_result.is_err() {
             error!("Failed to parse path: {:?}", parse_path_result);
             return Err(pingora::Error::new_str("Failed to parse path"));
         }
 
-        let (_, (bucket, _)) = parse_path(path).unwrap();
+        let (_, (bucket, _)) = parse_path_result.unwrap();
 
         let hdr_bucket = bucket.to_owned();
 
@@ -266,20 +269,39 @@ impl ProxyHttp for MyProxy {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
+
+        let addressing_style = bucket_config.clone()
+            .and_then(|config| config.addressing_style)
+            .unwrap_or("virtual".to_string());
+
         let endpoint = match bucket_config.clone() {
-            Some(config) => format!("{}.{}", bucket, config.host.to_owned()),
+            Some(config) => {
+                if addressing_style == "path" {
+                    config.host.to_owned()
+                } else {
+                    format!("{}.{}", bucket, config.host)
+                }            
+            },
             None => {
                 format!("{}.{}", bucket, self.cos_endpoint)
             }
         };
 
-        let port = bucket_config
+        let port = bucket_config.clone()
             .and_then(|config| Some(config.port))
             .unwrap_or(443);
 
         let addr = (endpoint.clone(), port);
 
-        let mut peer = Box::new(HttpPeer::new(addr, true, endpoint.clone()));
+        let endpoint_is_tls = bucket_config
+            .and_then(|config| config.tls)
+            .unwrap_or(true);
+        
+        dbg!("is_tls: {}", endpoint_is_tls);
+        dbg!("endpoint: {}", &endpoint);
+
+        let mut peer = Box::new(HttpPeer::new(addr, endpoint_is_tls, endpoint.clone()));
+        dbg!("peer: {:#?}", &peer);
 
         // todo: make ths configurable
 
@@ -322,21 +344,36 @@ impl ProxyHttp for MyProxy {
         info!("request method : {}", session.req_header().method);
 
         let parsed_query_result = parse_query(request_query);
+
         if parsed_query_result.is_err() {
             error!("Failed to parse query: {:?}", parsed_query_result);
             return Err(pingora::Error::new_str("Failed to parse query"));
         }
-        let (rest, query_dict) = parsed_query_result.unwrap();
+        let (rest, mut query_dict) = parsed_query_result.unwrap();
         if rest.is_empty() {
             info!("Parsed query: {:#?}", query_dict);
         } else {
             error!("Failed to parse query: {}", rest);
         }
 
-        info!("Parsed query: {:#?}", query_dict);
+        query_dict.insert("method".to_string(), session.req_header().method.to_string());
+        query_dict.insert("path".to_string(), session.req_header().uri.path().to_string());
+        // insert source
+        query_dict.insert(
+            "source".to_string(),
+            session
+                .req_header()
+                .headers
+                .get("x-forwarded-for")
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or_default()
+                .to_string(),
+        );
 
 
 
+
+        info!("---> Parsed query: {:#?}", query_dict);
 
         if session
             .req_header()
@@ -357,7 +394,7 @@ impl ProxyHttp for MyProxy {
             return Err(pingora::Error::new_str("Failed to parse path"));
         }
 
-        let (_, (bucket, _uri_path)) = parse_path(path).unwrap();
+        let (_, (bucket, _uri_path)) = parse_path_result.unwrap();
 
         let hdr_bucket = bucket.to_owned();
 
@@ -522,21 +559,27 @@ impl ProxyHttp for MyProxy {
                 }
             }
             info!("Signature check passed, continuing now onto the bespoke validation");
-            let cache_key = format!("{}:{}", &access_key, bucket);
+            let cache_key = format!("{}:{}:{:?}", &access_key, bucket, &query_dict);
             debug!("Cache key: {}", cache_key);
 
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
+
             let move_access_key = access_key.clone();
+            let req = query_dict.clone();
+
             ctx.auth_cache
                 .get_or_validate(&cache_key, Duration::from_secs(ttl), move || {
                     let tk = move_access_key.clone();
                     let bu = bucket_clone.clone();
                     let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
-                    async move {
-                        validate_request(&tk, &bu, cb)
-                            .await
-                            .map_err(|_| pingora::Error::new_str("Validator error"))
+                    {
+                        let req_value = req.clone();
+                        async move {
+                            validate_request(&tk, &bu, &req_value, cb)
+                                .await
+                                .map_err(|_| pingora::Error::new_str("Validator error"))
+                        }
                     }
                 })
                 .await?
@@ -630,7 +673,13 @@ impl ProxyHttp for MyProxy {
         let _ = upstream_request.remove_header("accept-encoding");
 
         debug!("upstream_request_filter::start");
+
+
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
+
+        dbg!(&my_updated_url);
+
+
 
         let hdr_bucket = bucket.to_string();
 
@@ -644,12 +693,33 @@ impl ProxyHttp for MyProxy {
             map.get(&hdr_bucket).cloned()
         };
 
+        let addressing_style = bucket_config
+            .clone()
+            .and_then(|config| config.addressing_style)
+            .unwrap_or("virtual".to_string());
+
+
+        let this_url = match addressing_style.as_str() {
+            "virtual" => my_updated_url,
+            _ => {
+
+                let u_url = format!("/{}{}", bucket, my_updated_url);
+                dbg!("u_url: {}", &u_url);
+                &u_url.clone()
+            },
+        };
+
+
         let endpoint = match bucket_config.clone() {
             Some(cfg) => {
+                let this_host = match addressing_style.as_str() {
+                    "path" => cfg.host.to_owned(),
+                    _ => format!("{}.{}", bucket, cfg.host),
+                };
                 if cfg.port == 443 {
-                    format!("{}.{}", bucket, cfg.host)
+                    this_host
                 } else {
-                    format!("{}.{}:{}", bucket, cfg.host, cfg.port)
+                    format!("{}:{}", this_host, cfg.port)
                 }
             }
             None => format!("{}.{}", bucket, self.cos_endpoint),
@@ -659,15 +729,17 @@ impl ProxyHttp for MyProxy {
 
         // Box:leak the temporary string to get a static reference which will outlive the function
         let authority = Authority::from_static(Box::leak(endpoint.clone().into_boxed_str()));
+        // if addressing_style == "virtual" {
 
         let new_uri = Uri::builder()
             .scheme("https")
             .authority(authority.clone())
-            .path_and_query(my_updated_url.to_owned() + &my_query)
+            .path_and_query(this_url.to_owned() + &my_query)
             .build()
             .expect("should build a valid URI");
 
         upstream_request.set_uri(new_uri.clone());
+        // }
         upstream_request.insert_header("host", authority.as_str())?;
 
         let (maybe_hmac, maybe_api_key) = match &bucket_config {
@@ -837,7 +909,7 @@ impl ProxyHttp for MyProxy {
             upstream_request.insert_header("Authorization", format!("Bearer {bearer_token}"))?;
         }
 
-        debug!("Sending request to upstream: {}", &new_uri);
+        // debug!("Sending request to upstream: {}", &new_uri);
 
         debug!("Request sent to upstream.");
         debug!("upstream_request_filter::end");

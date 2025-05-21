@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from object_storage_proxy import start_server, ProxyServerConfig
 
 
-_TRUES  = {"y", "yes", "t", "true", "on", "1"}
+_TRUES = {"y", "yes", "t", "true", "on", "1"}
 _FALSES = {"n", "no", "f", "false", "off", "0"}
 
 
@@ -23,35 +23,39 @@ def strtobool(val: str) -> bool:
 
 
 def do_api_creds(token: str, bucket: str) -> str:
-    """Fetch credentials (ro, rw, access_denied) for the given bucket, depending on the token. """
+    """Fetch credentials (ro, rw, access_denied) for the given bucket, depending on the token."""
     apikey = os.getenv("COS_API_KEY")
     if not apikey:
         raise ValueError("COS_API_KEY environment variable not set")
-    
+
     print(f"Fetching credentials for {bucket}...")
     return apikey
 
 
 def do_hmac_creds(token: str, bucket: str) -> str:
-    """ Fetch HMAC credentials (ro, rw, access_denied) for the given bucket, depending on the token """
+    """Fetch HMAC credentials (ro, rw, access_denied) for the given bucket, depending on the token"""
     access_key = os.getenv("ACCESS_KEY")
     secret_key = os.getenv("SECRET_KEY")
     if not access_key or not secret_key:
         raise ValueError("ACCESS_KEY or SECRET_KEY environment variable not set")
-        
+
     print(f"Fetching HMAC credentials for {bucket}...")
 
-    return json.dumps({
-        "access_key": access_key,
-        "secret_key": secret_key
-    })
+    return json.dumps({"access_key": access_key, "secret_key": secret_key})
+
 
 def lookup_secret_key(access_key: str) -> str | None:
     # get all environment variables ending in ACCESS_KEY
-    access_keys = [{key:value} for key, value in os.environ.items() if key.endswith("ACCESS_KEY") and value==access_key ]
+    access_keys = [
+        {key: value}
+        for key, value in os.environ.items()
+        if key.endswith("ACCESS_KEY") and value == access_key
+    ]
 
     if len(access_keys) > 0:
-        access_key_var = next((k for k, v in access_keys[0].items() if v == access_key), None)
+        access_key_var = next(
+            (k for k, v in access_keys[0].items() if v == access_key), None
+        )
 
         secret_key_var = access_key_var.replace("ACCESS_KEY", "SECRET_KEY")
         return os.getenv(secret_key_var, None)
@@ -59,16 +63,14 @@ def lookup_secret_key(access_key: str) -> str | None:
         print(f"no access keys found for : {access_key}")
 
 
-def do_validation(token: str, bucket: str) -> bool:
-    """ Authorize the request based on token for the given bucket. 
-        You can plug in your own authorization service here.
-        The token is the authorization token passed in the request.
-        The bucket is the bucket name.
-        The function should return True if the request is authorized, False otherwise.
+def do_validation(token: str, bucket: str, request: dict) -> bool:
+    """Authorize the request based on token for the given bucket.
+    You can plug in your own authorization service here.
+    The token is the authorization token passed in the request.
+    The bucket is the bucket name.
+    The function should return True if the request is authorized, False otherwise.
     """
-
-    print(f"PYTHON: Validating headers: {token} for {bucket}...")
-    # return random.choice([True, False])
+    print(f"------> From Python: Validating headers: {token=}, {bucket=}, {request=}")
     return True
 
 
@@ -86,18 +88,27 @@ def main() -> None:
         raise ValueError("COS_API_KEY environment variable not set")
 
     cos_map = {
+        "tpch": {
+            "host": "biggie",
+            "region": "eu-de",
+            "port": 9000,
+            "access_key": "localkey",
+            "secret_key": "localpass",
+            "addressing_style": "path",
+            "is_tls_enabled": False,
+        },
         "bucket1": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
             "region": "eu-de",
             "port": 443,
             "apikey": apikey,
-            "ttl": 0
+            "ttl": 0,
         },
         "bucket2": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
             "region": "eu-de",
             "port": 443,
-            "apikey": apikey
+            "apikey": apikey,
         },
         "proxy-bucket01": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
@@ -105,7 +116,7 @@ def main() -> None:
             # "access_key": os.getenv("ACCESS_KEY"),
             # "secret_key": os.getenv("SECRET_KEY"),
             "port": 443,
-            "ttl": 300
+            "ttl": 300,
         },
         "proxy-bucket05": {
             "host": "s3.eu-de.cloud-object-storage.appdomain.cloud",
@@ -113,7 +124,7 @@ def main() -> None:
             "access_key": os.getenv("PROXY_BUCKET05_ACCESS_KEY"),
             "secret_key": os.getenv("PROXY_BUCKET05_SECRET_KEY"),
             "port": 443,
-            "ttl": 300
+            "ttl": 300,
         },
         "proxy-aws-bucket01": {
             "host": "s3.eu-west-3.amazonaws.com",
@@ -121,20 +132,19 @@ def main() -> None:
             "access_key": os.getenv("AWS_ACCESS_KEY"),
             "secret_key": os.getenv("AWS_SECRET_KEY"),
             "port": 443,
-            "ttl": 300
-        }
+            "ttl": 300,
+        },
     }
 
-    hmac_keys= [
+    hmac_keys = [
         # {
         #     "access_key": os.getenv("LOCAL_ACCESS_KEY"),
         #     "secret_key": os.getenv("LOCAL_SECRET_KEY")
         # },
         {
             "access_key": os.getenv("LOCAL2_ACCESS_KEY"),
-            "secret_key": os.getenv("LOCAL2_SECRET_KEY")
+            "secret_key": os.getenv("LOCAL2_SECRET_KEY"),
         },
-
     ]
 
     ra = ProxyServerConfig(
@@ -147,7 +157,7 @@ def main() -> None:
         # verify=False,
         hmac_keystore=hmac_keys,
         skip_signature_validation=False,
-        hmac_fetcher=lookup_secret_key
+        hmac_fetcher=lookup_secret_key,
     )
 
     start_server(ra)
@@ -155,6 +165,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
