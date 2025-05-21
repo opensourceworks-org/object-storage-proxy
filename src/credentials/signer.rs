@@ -1263,6 +1263,8 @@ mod tests {
             port: 443,
             api_key: None,
             ttl: None,
+            tls: Some(true),
+            addressing_style: Some("path".to_string()),
         }
     }
 
