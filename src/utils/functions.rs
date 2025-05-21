@@ -1,22 +1,27 @@
-// use pyo3::prelude::*;
-// use pyo3::types::{IntoPyDict, PyAny, PyFunction};
+use pyo3::prelude::*;
+use pyo3::types::{IntoPyDict, PyAny, PyFunction};
+use tracing::debug;
 
-// pub(crate) fn inspect_callable_signature(py: Python<'_>, callable: &PyAny) -> PyResult<()> {
-//     let inspect = py.import("inspect")?;
-//     let signature = inspect.call_method1("signature", (callable.into(),))?;
-//     let parameters = signature.getattr("parameters")?;
+pub(crate) fn callable_accepts_request(py: Python<'_>, callable: &PyObject) -> PyResult<bool> {
 
-//     for item in parameters.call_method0("items")?.iter()? {
-//         let (name, param_obj): (&str, &PyAny) = item?.extract()?;
-//         let annotation = param_obj.getattr("annotation")?;
+    let inspect = py.import("inspect")?;
+    let signature = inspect.call_method1("signature", (callable.to_owned(),))?;
+    let parameters = signature.getattr("parameters")?;
+    dbg!(&parameters);
+    let parameters = parameters.call_method0("items")?;
 
-//         println!("Param: {}", name);
-//         if annotation.repr()?.to_str()? != "<class 'inspect._empty'>" {
-//             println!("  -> Annotation: {}", annotation.repr()?);
-//         } else {
-//             println!("  -> Annotation: None");
-//         }
-//     }
+    
+    for p in parameters.try_iter()? {
+        let (name, param) = p?.extract::<(String, PyObject)>()?;
+        let annotation = param.getattr(py, "annotation")?;
+        debug!("Param: {}", name);
+        let arg_type = annotation.to_string();
+        debug!("Annotation: {}", &arg_type);
+        if name == "request" && arg_type.contains("dict"){
+            return Ok(true)
+        }
 
-//     Ok(())
-// }
+    }
+
+    Ok(false)
+}

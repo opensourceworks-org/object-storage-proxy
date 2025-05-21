@@ -10,6 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::utils::functions::callable_accepts_request;
+
 #[derive(Clone, Debug)]
 struct AuthEntry {
     authorized: bool,
@@ -120,27 +122,56 @@ pub async fn validate_request(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect::<HashMap<String, String>>();
 
-    // let py_req = Python::with_gil(|py| {
-    //     let dict = req.into_py_dict(py);
-    //     dict.unwrap().clone()
-    // });
     debug!("request details sent to Python callable: {:?}", &req);
 
-    let authorized = task::spawn_blocking(move || {
-        Python::with_gil(
-            |py| match callback.call1(py, (token.as_str(), bucket.as_str(), &req)) {
-                Ok(result_obj) => result_obj
-                    .extract::<bool>(py)
-                    .map_err(|_| "Failed to extract boolean".to_string()),
-                Err(e) => {
-                    error!("Python callback error: {:?}", e);
-                    Err("Inner Python exception".to_string())
-                }
-            },
-        )
-    })
-    .await
-    .map_err(|e| format!("Join error: {:?}", e))??;
+    let takes_request = Python::with_gil(|py| {
+        let sig = callable_accepts_request(py, &callback);
+        if sig.is_err() {
+            return Err(format!("Invalid callable signature: {:?}", sig));
+        }
+        Ok(sig.unwrap())
+    });
+
+    if takes_request.is_err() {
+        return Err(format!("Invalid callable signature: {:?}", takes_request));
+    }
+    let takes_request = takes_request.unwrap();
+
+    debug!("Python callable can take request: {:?}", &takes_request);
+
+    let authorized = if takes_request {
+        task::spawn_blocking(move || {
+            Python::with_gil(
+                |py| match callback.call1(py, (token.as_str(), bucket.as_str(), &req)) {
+                    Ok(result_obj) => result_obj
+                        .extract::<bool>(py)
+                        .map_err(|_| "Failed to extract boolean".to_string()),
+                    Err(e) => {
+                        error!("Python callback error: {:?}", e);
+                        Err("Inner Python exception".to_string())
+                    }
+                },
+            )
+        })
+        .await
+        .map_err(|e| format!("Join error: {:?}", e))??
+    } else {
+        task::spawn_blocking(move || {
+            Python::with_gil(
+                |py| match callback.call1(py, (token.as_str(), bucket.as_str())) {
+                    Ok(result_obj) => result_obj
+                        .extract::<bool>(py)
+                        .map_err(|_| "Failed to extract boolean".to_string()),
+                    Err(e) => {
+                        error!("Python callback error: {:?}", e);
+                        Err("Inner Python exception".to_string())
+                    }
+                },
+            )
+        })
+        .await
+        .map_err(|e| format!("Join error: {:?}", e))??
+    };
 
     Ok(authorized)
 }

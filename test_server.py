@@ -70,10 +70,7 @@ def do_validation(token: str, bucket: str, request: dict) -> bool:
     The bucket is the bucket name.
     The function should return True if the request is authorized, False otherwise.
     """
-
-    print(
-        f"------> From Python: Validating headers: {token=} for {bucket=}... with {request=}"
-    )
+    print(f"------> From Python: Validating headers: {token=}, {bucket=}, {request=}")
     return True
 
 
