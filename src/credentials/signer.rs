@@ -97,18 +97,6 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
     ) -> Self {
 
 
-        // let allowed: Vec<&str> = if let Some(sh) = signed_headers {
-        //     sh.iter().map(String::as_str).collect()
-        // } else {
-        //     vec![
-        //         "host",
-        //         "x-amz-date",
-        //         "range",
-        //         "x-amz-content-sha256",
-        //         "x-amz-security-token",
-        //     ]
-        // };
-
         let signed_allow: Option<HashSet<&str>> =
             _signed_headers.map(|v| v.iter().map(String::as_str).collect());
 
