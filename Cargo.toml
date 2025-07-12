@@ -41,6 +41,7 @@ futures-core = "0.3.31"
 pin-project-lite = "0.2.16"
 base64 = "0.22.1"
 urlencoding = "2.1.3"
+dashmap = "6.1.0"
 # sha2 = "0.10.9"
 # hmac-sha256 = "1.1.8"
 

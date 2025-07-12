@@ -1,10 +1,12 @@
 #![warn(clippy::all)]
 use async_trait::async_trait;
-use bytes::BytesMut;
+use bytes::{BytesMut, Bytes};
 use credentials::signer::{self, resign_streaming_request, signature_is_valid_for_presigned, signature_is_valid_for_request};
+use dashmap::DashMap;
 use dotenv::dotenv;
-use http::Uri;
+use http::{StatusCode, Uri};
 use http::uri::Authority;
+use nom::Err;
 use parsers::cos_map::{CosMapItem, parse_cos_map};
 use parsers::keystore::parse_hmac_list;
 use pingora::http::ResponseHeader;
@@ -15,10 +17,12 @@ use pingora::upstreams::peer::HttpPeer;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
 use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
+use std::path;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+
 
 // use utils::functions::inspect_callable_signature;
 
@@ -45,10 +49,39 @@ use credentials::{
 
 pub mod utils;
 use utils::validator::{AuthCache, validate_request};
+use utils::response::write_error_response_with_header;
+
 
 
 static REQ_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone)]
+pub struct UrlTracker {
+    pub counts: Arc<DashMap<String, usize>>,
+}
+
+impl UrlTracker {
+    pub fn new() -> Self {
+        UrlTracker {
+            counts: Arc::new(DashMap::new()),
+        }
+    }
+
+    pub fn track(&self, url: &str) {
+        let mut entry = self.counts.entry(url.to_string()).or_insert(0);
+        *entry += 1;
+        println!("{} Tracking URL: {} - Count: {}", "03".repeat(50), url, *entry);
+    }
+
+    pub fn get(&self, url: &str) -> Option<usize> {
+        self.counts.get(url).map(|v| *v)
+    }
+
+    pub fn get_all(&self) -> Vec<(String, usize)> {
+        self.counts.iter().map(|e| (e.key().clone(), *e.value())).collect()
+    }
+}
 
 /// Configuration object for :pyfunc:`object_storage_proxy.start_server`.
 ///
@@ -111,7 +144,13 @@ pub struct ProxyServerConfig {
     pub skip_signature_validation: Option<bool>,
 
    #[pyo3(get, set)]
-   pub hmac_fetcher: Option<Py<PyAny>>
+   pub hmac_fetcher: Option<Py<PyAny>>,
+
+   #[pyo3(get, set)]
+   pub max_presign_url_usage_attempts: Option<usize>,
+
+   #[pyo3(get, set)]
+   pub server_name: String,
 }
 
 impl Default for ProxyServerConfig {
@@ -127,6 +166,8 @@ impl Default for ProxyServerConfig {
             hmac_keystore: Python::with_gil(|py| py.None()),
             skip_signature_validation: Some(false),
             hmac_fetcher: None,
+            max_presign_url_usage_attempts: Some(3),
+            server_name: "<osp⚡>".to_string()
         }
     }
 }
@@ -146,6 +187,8 @@ impl ProxyServerConfig {
             verify = None,
             skip_signature_validation = Some(false),
             hmac_fetcher = None,
+            max_presign_url_usage_attempts = Some(3),
+            server_name = "<osp⚡>".to_string(),
         )
     )]
     pub fn new(
@@ -159,6 +202,8 @@ impl ProxyServerConfig {
         verify: Option<bool>,
         skip_signature_validation: Option<bool>,
         hmac_fetcher: Option<PyObject>,
+        max_presign_url_usage_attempts: Option<usize>,
+        server_name: String,
     ) -> Self {
         ProxyServerConfig {
             cos_map,
@@ -171,6 +216,8 @@ impl ProxyServerConfig {
             verify,
             skip_signature_validation,
             hmac_fetcher,
+            max_presign_url_usage_attempts,
+            server_name,
         }
     }
 
@@ -193,7 +240,9 @@ pub struct MyProxy {
     verify: Option<bool>,
     skip_signature_validation: Option<bool>,
     hmac_fetcher: Option<PyObject>,
-
+    tracker: UrlTracker,
+    max_presign_url_usage_attempts: Option<usize>,
+    server_name: String,
 }
 
 pub struct MyCtx {
@@ -331,8 +380,40 @@ impl ProxyHttp for MyProxy {
     }
 
 
-    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
+    async fn request_filter(&self, mut session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
+
+        // Tracking the request count for each URL
+        let url = session.req_header().uri.to_string();
+        let path = session.req_header().uri.path().to_string();
+        self.tracker.track(&url);
+        let tracked_count = self.tracker.get(&url).unwrap_or(0);
+        if tracked_count > self.max_presign_url_usage_attempts.unwrap_or(3) {
+            println!("URL ({}) has been tracked too many times: {} (max={}).  Access Denied!",
+            url, tracked_count, self.max_presign_url_usage_attempts.unwrap_or(3));
+            let msg = format!(
+                "URL ({}) has been tracked too many times: {} (max={}).  Access Denied!",
+                path,
+                tracked_count,
+                self.max_presign_url_usage_attempts.unwrap_or(3)
+            );
+
+            // let mut hdr = ResponseHeader::build(StatusCode::FORBIDDEN, Some(msg.len()))?;
+            // hdr.insert_header("content-type", "text/plain")?;
+            // hdr.insert_header("server", self.server_name.clone())?;
+            // hdr.insert_header("x-content-type-options", "nosniff")?;
+
+            // // Send it
+            // session.write_response_header(Box::new(hdr), false).await?;
+            // // session
+            // //     .write_response_body(Some(msg.into()), true)
+            // //     .await?;
+
+
+            // session.respond_error_with_body(403, msg.into()).await?;
+            write_error_response_with_header(&mut session, StatusCode::FORBIDDEN, msg).await?;
+            return Ok(true);
+        }
 
         dbg!(&session.request_summary());
 
@@ -369,9 +450,6 @@ impl ProxyHttp for MyProxy {
                 .unwrap_or_default()
                 .to_string(),
         );
-
-
-
 
         info!("---> Parsed query: {:#?}", query_dict);
 
@@ -493,7 +571,8 @@ impl ProxyHttp for MyProxy {
                         };                       
                         info!("is signature valid?: {}", ok);
                         if !ok {
-                            session.respond_error(401).await?;
+                            let msg = format!("Signature invalid for presigned URL: {}", &session.req_header().uri.path());
+                            session.respond_error_with_body(401, msg.into()).await?;
                             return Ok(true);
                         }
                     } else {
@@ -1034,7 +1113,10 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
                 .map(|v| v.clone_ref(py)),
             verify: run_args.verify,
             skip_signature_validation: run_args.skip_signature_validation,
-            hmac_fetcher
+            hmac_fetcher,
+            tracker: UrlTracker::new(),
+            max_presign_url_usage_attempts: run_args.max_presign_url_usage_attempts,
+            server_name: "<osp⚡>".to_string(),
         },
     );
 

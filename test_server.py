@@ -158,6 +158,7 @@ def main() -> None:
         hmac_keystore=hmac_keys,
         skip_signature_validation=False,
         hmac_fetcher=lookup_secret_key,
+        max_presign_url_usage_attempts=1,  # Set the maximum URL attempts for presigned URLs
     )
 
     start_server(ra)
