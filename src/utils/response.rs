@@ -12,18 +12,13 @@ pub async fn write_error_response_with_header(
     msg: String,
 ) -> Result<bool> {
     let mut hdr = ResponseHeader::build(status_code, None)?;
-    hdr.insert_header("content-type", "text/plain")?;
-    hdr.insert_header("server", DEFAULT_SERVER_NAME)?;
-    hdr.insert_header("x-content-type-options", "nosniff")?;
+    hdr.insert_header("Content-Type", "text/plain")?;
+    hdr.insert_header("Server", DEFAULT_SERVER_NAME)?;
+    hdr.insert_header("X-Content-Type-Options", "nosniff")?;
     
 
     session.write_response_header(Box::new(hdr), false).await?;
-    // session.downstream_session
-    //     .write_response_body(msg.into(), true)
-    //     .await?;
-    // session
-    //     .write_response_body(Some(Bytes::copy_from_slice(msg.as_bytes())), true)
-    //     .await?;
+
     session
         .write_response_body(
             Some(Bytes::copy_from_slice(msg.as_bytes())),

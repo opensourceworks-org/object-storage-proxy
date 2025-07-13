@@ -55,6 +55,8 @@ use utils::response::write_error_response_with_header;
 
 static REQ_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
+const DEFAULT_SERVER_NAME: &str = "<osp⚡>";
+
 
 #[derive(Clone)]
 pub struct UrlTracker {
@@ -464,9 +466,9 @@ impl ProxyHttp for MyProxy {
         };
 
 
-        let path = session.req_header().uri.path();
+        let path = session.req_header().uri.path().to_owned();
 
-        let parse_path_result = parse_path(path);
+        let parse_path_result = parse_path(&path);
         if parse_path_result.is_err() {
             error!("Failed to parse path: {:?}", parse_path_result);
             return Err(pingora::Error::new_str("Failed to parse path"));
@@ -547,12 +549,22 @@ impl ProxyHttp for MyProxy {
                                     }
                                     Err(_) => {
                                         // no key → unauthorized
-                                        session.respond_error(401).await?;
+                                        write_error_response_with_header(
+                                            &mut session,
+                                            StatusCode::UNAUTHORIZED,
+                                            "No key found for presigned URL".to_string(),
+                                        ).await?;
+                                        // session.respond_error(401).await?;
                                         return Ok(true);
                                     }
                                 }
                             } else {
-                                session.respond_error(401).await?;
+                                // session.respond_error(401).await?;
+                                write_error_response_with_header(
+                                    &mut session,
+                                    StatusCode::UNAUTHORIZED,
+                                    "No key found for presigned URL".to_string(),
+                                ).await?;
                                 return Ok(true);
                             }
      
@@ -596,12 +608,22 @@ impl ProxyHttp for MyProxy {
                                 }
                                 Err(_) => {
                                     // no key → unauthorized
-                                    session.respond_error(401).await?;
+                                    // session.respond_error(401).await?;
+                                    write_error_response_with_header(
+                                        &mut session,
+                                        StatusCode::UNAUTHORIZED,
+                                        "No key found for request".to_string(),
+                                    ).await?;
                                     return Ok(true);
                                 }
                             }
                         } else {
-                            session.respond_error(401).await?;
+                            // session.respond_error(401).await?;
+                            write_error_response_with_header(
+                                &mut session,
+                                StatusCode::UNAUTHORIZED,
+                                "No key found for request".to_string(),
+                            ).await?;
                             return Ok(true);
                         }
                     }
@@ -631,7 +653,12 @@ impl ProxyHttp for MyProxy {
                      
                      // if signature failed, skip further validation
                      if !sig_ok {
-                         session.respond_error(401).await?;
+                        //  session.respond_error(401).await?;
+                         write_error_response_with_header(
+                             &mut session,
+                             StatusCode::UNAUTHORIZED,
+                             "Signature invalid".to_string(),
+                         ).await?;
                          return Ok(true);
                      }
                     }
@@ -668,7 +695,12 @@ impl ProxyHttp for MyProxy {
 
         if !is_authorized {
             info!("Access denied for bucket: {}.  End of request.", bucket);
-            session.respond_error(401).await?;
+            // session.respond_error(401).await?;
+            write_error_response_with_header(
+                &mut session,
+                StatusCode::UNAUTHORIZED,
+                format!("Access denied for bucket: {}", bucket),
+            ).await?;
             return Ok(true);
         }
 
@@ -1002,9 +1034,9 @@ impl ProxyHttp for MyProxy {
         resp: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
     ) -> Result<()> {
-        let _ = resp.remove_header("server");
+        let _ = resp.remove_header("Server");
 
-        let _ = resp.insert_header("Server", "Object-Storage-Proxy");
+        let _ = resp.insert_header("Server", DEFAULT_SERVER_NAME);
 
         Ok(())
     }
