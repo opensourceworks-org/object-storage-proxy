@@ -227,11 +227,12 @@ Pre-built wheels are published to [PyPI](https://pypi.org/project/object-storage
 | Platform | Architecture | Libc | Python |
 |----------|-------------|------|--------|
 | Linux (`ubuntu-22.04`) | x86_64 | glibc (manylinux) | 3.x |
+| Linux (`ubuntu-22.04`) | aarch64 | glibc (manylinux) | 3.x |
 | Linux (`alpine 3.18`) | x86_64 | musl (musllinux_1_2) | 3.x |
 | macOS (`macos-14`) | aarch64 (Apple Silicon) | — | 3.x |
 | Source distribution | any | any | 3.x |
 
-Windows and Linux aarch64 builds are not currently active in CI. An sdist is always published so you can build from source on any platform with Rust stable installed.
+Windows builds are not currently active in CI. An sdist is always published so you can build from source on any platform with Rust stable installed.
 
 ## Building from source
 
