@@ -1,0 +1,111 @@
+version: "3"
+
+vars:
+  PYTHON: uv run python
+  MATURIN: uv run maturin
+
+tasks:
+  # ── setup ──────────────────────────────────────────────────────────────────
+
+  setup:
+    desc: "Install Python dev dependencies (uv sync)"
+    cmds:
+      - uv sync
+
+  # ── build ──────────────────────────────────────────────────────────────────
+
+  build:
+    desc: "Compile the Rust extension and install it into .venv (dev build)"
+    cmds:
+      - "{{.MATURIN}} develop"
+
+  build:release:
+    desc: "Compile with release optimisations and install into .venv"
+    cmds:
+      - "{{.MATURIN}} develop --release"
+
+  wheel:
+    desc: "Build a debug wheel into target/wheels/"
+    cmds:
+      - "{{.MATURIN}} build"
+
+  wheel:release:
+    desc: "Build a release wheel into target/wheels/"
+    cmds:
+      - "{{.MATURIN}} build --release"
+
+  # ── run ────────────────────────────────────────────────────────────────────
+
+  run:
+    desc: "Build (dev) and start the proxy test server"
+    deps: [build]
+    cmds:
+      - "{{.PYTHON}} test_server.py"
+
+  run:release:
+    desc: "Build (release) and start the proxy test server"
+    deps: [build:release]
+    cmds:
+      - "{{.PYTHON}} test_server.py"
+
+  # ── test ───────────────────────────────────────────────────────────────────
+
+  test:rust:
+    desc: "Run Rust unit tests with cargo nextest (falls back to cargo test)"
+    cmds:
+      - cargo nextest run
+    ignore_error: false
+
+  test:rust:cargo:
+    desc: "Run Rust unit tests with plain cargo test"
+    cmds:
+      - cargo test
+
+  test:integration:
+    desc: "Run the integration test shell script"
+    cmds:
+      - bash test_integration.sh
+
+  test:
+    desc: "Run all tests (Rust + integration)"
+    deps: [build]
+    cmds:
+      - task: test:rust
+      - task: test:integration
+
+  # ── lint / fmt ─────────────────────────────────────────────────────────────
+
+  fmt:
+    desc: "Format Rust code"
+    cmds:
+      - cargo fmt
+
+  lint:rust:
+    desc: "Run clippy on the Rust code"
+    cmds:
+      - cargo clippy -- -D warnings
+
+  lint:
+    desc: "Lint everything (Rust clippy)"
+    cmds:
+      - task: lint:rust
+
+  # ── clean ──────────────────────────────────────────────────────────────────
+
+  clean:
+    desc: "Remove Rust build artefacts and the Python virtual environment"
+    cmds:
+      - cargo clean
+      - rm -rf .venv
+
+  clean:wheels:
+    desc: "Remove built wheels only"
+    cmds:
+      - rm -rf target/wheels
+
+  # ── default ────────────────────────────────────────────────────────────────
+
+  default:
+    desc: "Show available tasks"
+    cmds:
+      - task --list

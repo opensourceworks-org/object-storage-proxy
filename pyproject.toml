@@ -27,11 +27,13 @@ dependencies = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 
-[tool.uv.workspace]
-members = ["integration"]
+# [tool.uv.workspace]
+# members = ["integration"]
 
 [dependency-groups]
-dev = []
+dev = [
+    "maturin>=1.13.3",
+]
 
 [project.urls]
 Homepage = "https://osp.flexworks.eu"
