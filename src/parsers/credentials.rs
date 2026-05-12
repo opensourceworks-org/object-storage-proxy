@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 
 use nom::{
-    bytes::complete::{tag, take_until, take_while1}, multi::separated_list1, sequence::{preceded, separated_pair}, IResult, Parser
+    IResult, Parser,
+    bytes::complete::{tag, take_until, take_while1},
+    multi::separated_list1,
+    sequence::{preceded, separated_pair},
 };
 
 use nom::character::complete::char as nomchar;
-use percent_encoding::percent_decode_str;
 use nom::error::{Error, ErrorKind, make_error};
+use percent_encoding::percent_decode_str;
 
 fn miss(i: &str) -> nom::Err<Error<&str>> {
     nom::Err::Error(make_error(i, ErrorKind::Tag))
@@ -22,16 +25,17 @@ pub fn parse_token_from_header(header: &str) -> IResult<&str, &str> {
 pub fn parse_credential_scope(input: &str) -> IResult<&str, (&str, &str)> {
     let (input, _) = take_until("Credential=")(input)?;
     let (remaining, (_, _, _, _, _, region, _, service, _)) = (
-        tag("Credential="),          // prefix
-        take_until("/"),            // access key
+        tag("Credential="), // prefix
+        take_until("/"),    // access key
         tag("/"),
-        take_until("/"),            // date
+        take_until("/"), // date
         tag("/"),
-        take_until("/"),            // region
+        take_until("/"), // region
         tag("/"),
-        take_until("/aws4_request"),// service
-        tag("/aws4_request"),       // trailing
-    ).parse(input)?;
+        take_until("/aws4_request"), // service
+        tag("/aws4_request"),        // trailing
+    )
+        .parse(input)?;
     Ok((remaining, (region, service)))
 }
 
@@ -66,7 +70,7 @@ fn query_pairs(input: &str) -> IResult<&str, Vec<(&str, &str)>> {
     } else {
         // the input *is* the query string, start parsing immediately
         ("", input)
-    };    // then parse key=val (& key=val)* until the end
+    }; // then parse key=val (& key=val)* until the end
     separated_list1(
         nomchar('&'),
         separated_pair(
@@ -74,7 +78,8 @@ fn query_pairs(input: &str) -> IResult<&str, Vec<(&str, &str)>> {
             nomchar('='),
             take_while1(is_val_char),
         ),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 /// Top-level parser
@@ -89,33 +94,36 @@ pub fn parse_presigned_params(input: &str) -> IResult<&str, PresignedParams> {
     }
 
     // pull out each required field (error if missing)
-    let algorithm      = m.remove("X-Amz-Algorithm"     ).ok_or_else(|| miss(rest))?;
-    let credential_raw = m.remove("X-Amz-Credential"    ).ok_or_else(|| miss(rest))?;
-    let amz_date       = m.remove("X-Amz-Date"          ).ok_or_else(|| miss(rest))?;
-    let expires        = m.remove("X-Amz-Expires"       ).ok_or_else(|| miss(rest))?;
-    let signed_headers = m.remove("X-Amz-SignedHeaders" ).ok_or_else(|| miss(rest))?;
-    let signature      = m.remove("X-Amz-Signature"     ).ok_or_else(|| miss(rest))?;
+    let algorithm = m.remove("X-Amz-Algorithm").ok_or_else(|| miss(rest))?;
+    let credential_raw = m.remove("X-Amz-Credential").ok_or_else(|| miss(rest))?;
+    let amz_date = m.remove("X-Amz-Date").ok_or_else(|| miss(rest))?;
+    let expires = m.remove("X-Amz-Expires").ok_or_else(|| miss(rest))?;
+    let signed_headers = m.remove("X-Amz-SignedHeaders").ok_or_else(|| miss(rest))?;
+    let signature = m.remove("X-Amz-Signature").ok_or_else(|| miss(rest))?;
 
     // split the credential into its components
     // format is: ACCESSKEY/DATE/REGION/SERVICE/aws4_request
     let mut parts = credential_raw.split('/');
-    let access_key     = parts.next().unwrap_or("").to_string();
-    let credential_date= parts.next().unwrap_or("").to_string();
-    let region         = parts.next().unwrap_or("").to_string();
-    let service        = parts.next().unwrap_or("").to_string();
+    let access_key = parts.next().unwrap_or("").to_string();
+    let credential_date = parts.next().unwrap_or("").to_string();
+    let region = parts.next().unwrap_or("").to_string();
+    let service = parts.next().unwrap_or("").to_string();
     // ignore the final “aws4_request”
 
-    Ok((rest, PresignedParams {
-        algorithm,
-        access_key,
-        credential_date,
-        region,
-        service,
-        amz_date,
-        expires,
-        signed_headers,
-        signature,
-    }))
+    Ok((
+        rest,
+        PresignedParams {
+            algorithm,
+            access_key,
+            credential_date,
+            region,
+            service,
+            amz_date,
+            expires,
+            signed_headers,
+            signature,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -142,7 +150,6 @@ mod tests {
         let bad = "NoCredentialHere";
         assert!(parse_token_from_header(bad).is_err());
     }
-
 
     #[test]
     fn test_parse_valid_scope() {
@@ -189,7 +196,10 @@ mod tests {
         assert_eq!(p.amz_date, "20250426T143249Z");
         assert_eq!(p.expires, "3600");
         assert_eq!(p.signed_headers, "host");
-        assert_eq!(p.signature, "53cb3d8a12c8c1078fba3fcd55ced9c93fcdc8e2f98184e9ffea50245f4ebea5");
+        assert_eq!(
+            p.signature,
+            "53cb3d8a12c8c1078fba3fcd55ced9c93fcdc8e2f98184e9ffea50245f4ebea5"
+        );
     }
 
     #[test]
@@ -207,28 +217,29 @@ mod tests {
                  X-Amz-Expires=3600&\
                  X-Amz-SignedHeaders=host&\
                  X-Amz-Signature=53cb3d8a12c8c1078fba3fcd55ced9c93fcdc8e2f98184e9ffea50245f4ebea5";
-    
+
         // ❌ This is what the proxy does today — and it should FAIL until we fix the parser.
         assert!(
             parse_presigned_params(q).is_err(),
             "the parser should reject a query that has no leading '?'"
         );
-    
+
         // ✅ This is what the proxy *should* do (or what the parser should accept):
         let wrapped = format!("?{q}");
         let (_, p) = parse_presigned_params(&wrapped)
             .expect("parser must succeed when a leading '?' is present");
-    
-        assert_eq!(p.algorithm,        "AWS4-HMAC-SHA256");
-        assert_eq!(p.access_key,       "MYLOCAL123");
-        assert_eq!(p.credential_date,  "20250426");
-        assert_eq!(p.region,           "eu-west-3");
-        assert_eq!(p.service,          "s3");
-        assert_eq!(p.amz_date,         "20250426T143249Z");
-        assert_eq!(p.expires,          "3600");
-        assert_eq!(p.signed_headers,   "host");
-        assert_eq!(p.signature,        "53cb3d8a12c8c1078fba3fcd55ced9c93fcdc8e2f98184e9ffea50245f4ebea5");
+
+        assert_eq!(p.algorithm, "AWS4-HMAC-SHA256");
+        assert_eq!(p.access_key, "MYLOCAL123");
+        assert_eq!(p.credential_date, "20250426");
+        assert_eq!(p.region, "eu-west-3");
+        assert_eq!(p.service, "s3");
+        assert_eq!(p.amz_date, "20250426T143249Z");
+        assert_eq!(p.expires, "3600");
+        assert_eq!(p.signed_headers, "host");
+        assert_eq!(
+            p.signature,
+            "53cb3d8a12c8c1078fba3fcd55ced9c93fcdc8e2f98184e9ffea50245f4ebea5"
+        );
     }
 }
-
-

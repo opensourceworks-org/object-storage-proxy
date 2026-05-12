@@ -126,7 +126,6 @@ pub(crate) fn parse_cos_map(
             .or_else(|| inner_map.get("is_tls_enabled"))
             .map(|v| v.extract(py))
             .transpose()?;
-           
 
         let access_key = inner_map
             .get("access_key")
@@ -164,4 +163,3 @@ pub(crate) fn parse_cos_map(
 
     Ok(map)
 }
-

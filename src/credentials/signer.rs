@@ -3,13 +3,19 @@ use http::header::HeaderMap;
 use pingora::{http::RequestHeader, proxy::Session};
 use ring::hmac;
 use sha256::digest;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt, io,
+};
 use tracing::{debug, error};
-use std::{collections::{HashMap, HashSet}, fmt, io};
 use url::Url;
 
-use bytes::{Bytes, BytesMut, BufMut};
+use bytes::{BufMut, Bytes, BytesMut};
 
-use crate::parsers::{cos_map::CosMapItem, credentials::{parse_credential_scope, parse_token_from_header}};
+use crate::parsers::{
+    cos_map::CosMapItem,
+    credentials::{parse_credential_scope, parse_token_from_header},
+};
 
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
@@ -18,7 +24,8 @@ const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
 pub struct AwsSign<'a, T: 'a>
 where
-    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
+    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>,
+    T: std::fmt::Debug,
 {
     method: &'a str,
     url: Url,
@@ -64,9 +71,9 @@ where
 }
 
 /// Create a new AwsSign instance
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `method` - HTTP method (GET, POST, etc.)
 /// * `url` - URL to sign
 /// * `datetime` - Date and time of the request
@@ -77,11 +84,11 @@ where
 /// * `service` - AWS service code
 /// * `body` - Request body
 /// * `signed_headers` - Optional list of signed headers, used to check inbound request signature
-/// 
+///
 /// # Returns
-/// 
+///
 /// A new instance of `AwsSign`
-/// 
+///
 impl<'a> AwsSign<'a, HashMap<String, String>> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<B: AsRef<[u8]> + ?Sized>(
@@ -96,8 +103,6 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         body: &'a B,
         _signed_headers: Option<&'a Vec<String>>,
     ) -> Self {
-
-
         let signed_allow: Option<HashSet<&str>> =
             _signed_headers.map(|v| v.iter().map(String::as_str).collect());
 
@@ -130,7 +135,6 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
                 value.to_str().ok().map(|v| (name, v.trim().to_owned()))
             })
             .collect();
-        
 
         // let headers: HashMap<String, String> = headers
         //     .iter()
@@ -148,7 +152,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         //         value.to_str().ok().map(|v| (name, v.trim().to_owned()))
         //     })
         //     .collect();
-        
+
         debug!(url, "parsing presigned URL");
         let url: Url = url.parse().expect("invalid URL passed to AwsSign::new");
         // let headers: HashMap<String, String> = headers
@@ -179,11 +183,11 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
     }
 }
 
-
 /// custom debug implementation to redact secret_key
 impl<'a, T> fmt::Debug for AwsSign<'a, T>
 where
-    &'a T: IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
+    &'a T: IntoIterator<Item = (&'a String, &'a String)>,
+    T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AwsSign")
@@ -203,7 +207,8 @@ where
 
 impl<'a, T> AwsSign<'a, T>
 where
-    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>, T: std::fmt::Debug
+    &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>,
+    T: std::fmt::Debug,
 {
     /// for streaming uploads, we need to override the payload hash
     /// with the actual payload hash
@@ -260,7 +265,10 @@ where
         let canonical = self.canonical_request();
         let string_to_sign = string_to_sign(self.datetime, self.region, &canonical, self.service);
         let signing_key = signing_key(self.datetime, self.secret_key, self.region, self.service);
-        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &signing_key.expect("signing key derivation failed"));
+        let key = ring::hmac::Key::new(
+            ring::hmac::HMAC_SHA256,
+            &signing_key.expect("signing key derivation failed"),
+        );
         let tag = ring::hmac::sign(&key, string_to_sign.as_bytes());
         let signature = hex::encode(tag.as_ref());
         let signed_headers = self.signed_header_string();
@@ -356,7 +364,6 @@ pub fn signing_key(
     Ok(signing_tag.as_ref().to_vec())
 }
 
-
 /// Sign the request with the AWS V4 signature
 /// # Arguments
 /// * `request` - The request to sign
@@ -378,11 +385,17 @@ pub(crate) async fn sign_request(
     let datetime = chrono::Utc::now();
     let method = request.method.to_string();
     let url = request.uri.to_string();
-    let access_key = cos_map.access_key.as_ref()
+    let access_key = cos_map
+        .access_key
+        .as_ref()
         .ok_or_else(|| pingora::Error::new_str("bucket config missing access_key"))?;
-    let secret_key = cos_map.secret_key.as_ref()
+    let secret_key = cos_map
+        .secret_key
+        .as_ref()
         .ok_or_else(|| pingora::Error::new_str("bucket config missing secret_key"))?;
-    let region = cos_map.region.as_ref()
+    let region = cos_map
+        .region
+        .as_ref()
         .ok_or_else(|| pingora::Error::new_str("bucket config missing region"))?;
 
     request.insert_header(
@@ -407,11 +420,10 @@ pub(crate) async fn sign_request(
 
     let payload_hash = match payload_hdr {
         // client already supplied one → keep it verbatim
-        Some(h) => h,                                       
+        Some(h) => h,
 
         // empty-body requests (GET/HEAD/DELETE) → spec hash of “”
-        None if matches!(method.as_str(), "GET" | "HEAD" | "DELETE") => 
-            &sha256::digest(b""),
+        None if matches!(method.as_str(), "GET" | "HEAD" | "DELETE") => &sha256::digest(b""),
 
         // default for uploads over TLS
         _ => "UNSIGNED-PAYLOAD",
@@ -467,7 +479,6 @@ pub(crate) async fn sign_request(
     Ok(())
 }
 
-
 /// Core signature validation: compares provided vs computed
 #[allow(clippy::too_many_arguments)]
 async fn signature_is_valid_core(
@@ -522,8 +533,6 @@ pub async fn signature_is_valid_for_request(
     session: &Session,
     secret_key: &str,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-
-    
     let (_, local_access_key) = parse_token_from_header(auth_header)
         .map_err(|_| pingora::Error::new_str("Failed to parse token"))?;
     let local_access_key = local_access_key.to_string();
@@ -541,11 +550,13 @@ pub async fn signature_is_valid_for_request(
 
     let method = session.req_header().method.to_string();
     // Parse date header
-    let dt_header = session.req_header().headers.get("x-amz-date")
+    let dt_header = session
+        .req_header()
+        .headers
+        .get("x-amz-date")
         .ok_or_else(|| pingora::Error::new_str("missing x-amz-date header"))?
         .to_str()?;
     let datetime = NaiveDateTime::parse_from_str(dt_header, LONG_DATETIME)?.and_utc();
-
 
     let content_sha256 = session
         .req_header()
@@ -557,8 +568,10 @@ pub async fn signature_is_valid_for_request(
     let (body_bytes, payload_override) = if content_sha256 == "UNSIGNED-PAYLOAD" {
         (b"UNSIGNED-PAYLOAD" as &[u8], None)
     } else if content_sha256 == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
-        (b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD".as_ref(),
-         Some("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".to_string()))
+        (
+            b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD".as_ref(),
+            Some("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".to_string()),
+        )
     } else {
         // we don't have the raw body here, but we do have its hash:
         // tell AwsSign to use this string directly
@@ -607,7 +620,6 @@ pub async fn signature_is_valid_for_request(
     .await
 }
 
-
 /// Validate presigned URL signature
 pub async fn signature_is_valid_for_presigned(
     session: &Session,
@@ -629,11 +641,10 @@ pub async fn signature_is_valid_for_presigned(
         uri
     };
 
-    
-    let mut url = Url::parse(&full_uri)?; 
+    let mut url = Url::parse(&full_uri)?;
     debug!("full_url: {}", url);
     let mut provided_signature = None;
-    let mut qp: Vec<(String,String)> = vec![];
+    let mut qp: Vec<(String, String)> = vec![];
     for (k, v) in url.query_pairs() {
         if k == "X-Amz-Signature" {
             provided_signature = Some(v.into_owned());
@@ -642,15 +653,16 @@ pub async fn signature_is_valid_for_presigned(
         }
     }
     let provided_signature = provided_signature.ok_or("Missing X-Amz-Signature")?;
-    
+
     // rebuild query string without the signature
     qp.sort();
-    let new_query = qp.iter()
-                      .map(|(k,v)| format!("{k}={v}"))
-                      .collect::<Vec<_>>()
-                      .join("&");
+    let new_query = qp
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
     url.set_query(Some(&new_query));
-    
+
     // params map (also without the signature)
     let params: HashMap<_, _> = qp.into_iter().collect();
     debug!("params: {:?}", params);
@@ -675,15 +687,13 @@ pub async fn signature_is_valid_for_presigned(
     debug!("service: {}", service);
 
     // Parse date from query
-    let date_str = params
-        .get("X-Amz-Date")
-        .ok_or("Missing X-Amz-Date")?;
+    let date_str = params.get("X-Amz-Date").ok_or("Missing X-Amz-Date")?;
     let datetime = NaiveDateTime::parse_from_str(date_str, LONG_DATETIME)?.and_utc();
 
     debug!("datetime: {}", datetime);
 
     let body_bytes: &[u8] = b"UNSIGNED-PAYLOAD";
-    let payload_override = None;  
+    let payload_override = None;
 
     debug!("body_bytes: {:?}", body_bytes);
 
@@ -697,24 +707,29 @@ pub async fn signature_is_valid_for_presigned(
 
     let mut signed_hdrs = HeaderMap::new();
 
-    let host = url.host_str()
+    let host = url
+        .host_str()
         .ok_or_else(|| pingora::Error::new_str("presigned URL has no host"))?;
     let host_header = match url.port_or_known_default() {
         Some(443) | Some(80) | None => host.to_owned(),
-        Some(p)                    => format!("{}:{}", host, p),
+        Some(p) => format!("{}:{}", host, p),
     };
 
     signed_hdrs.insert("host", host_header.parse()?);
-    
+
     // copy any additional headers that appear in X-Amz-SignedHeaders (rare)
-    for h in &["x-amz-date", "x-amz-content-sha256", "range", "x-amz-security-token"] {
+    for h in &[
+        "x-amz-date",
+        "x-amz-content-sha256",
+        "range",
+        "x-amz-security-token",
+    ] {
         if signed_headers.contains(&h.to_string())
-            && let Some(v) = session.req_header().headers.get(*h) {
-                signed_hdrs.insert(*h, v.clone());
-            }
+            && let Some(v) = session.req_header().headers.get(*h)
+        {
+            signed_hdrs.insert(*h, v.clone());
+        }
     }
-
-
 
     debug!("signed_headers: {:?}", signed_headers);
     // delegate to core validator
@@ -731,10 +746,9 @@ pub async fn signature_is_valid_for_presigned(
         secret_key,
         &signed_headers,
         body_bytes,
-    ).await
+    )
+    .await
 }
-
-
 
 /// Build a stream whose items are *already* wrapped in
 /// "AWS-chunk-signed" envelopes.
@@ -763,7 +777,9 @@ pub async fn wrap_streaming_body(
     secret_key: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. pull the COMPLETE body from the client
-    let body: Bytes = session.read_request_body().await
+    let body: Bytes = session
+        .read_request_body()
+        .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?
         .ok_or_else(|| Box::<dyn std::error::Error>::from("empty request body"))?;
 
@@ -794,13 +810,14 @@ pub async fn wrap_streaming_body(
     let end_of_stream: bool = session.is_body_done();
 
     // 4. finally attach the body
-    session.write_response_body(Some(body), end_of_stream).await?;
+    session
+        .write_response_body(Some(body), end_of_stream)
+        .await?;
 
     Ok(())
 }
 
-const EMPTY_HASH: &str =
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const EMPTY_HASH: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /// Handles running signature state for AWS-chunked uploads
 pub struct ChunkSigner {
@@ -813,12 +830,7 @@ pub struct ChunkSigner {
 impl ChunkSigner {
     /// create a new signer.  
     /// *`seed_signature`* is the **signature you put in the `Authorization` header**
-    pub fn new(
-        signing_key: Vec<u8>,
-        scope: String,
-        ts: String,
-        seed_signature: String,
-    ) -> Self {
+    pub fn new(signing_key: Vec<u8>, scope: String, ts: String, seed_signature: String) -> Self {
         Self {
             signing_key,
             scope,
@@ -862,17 +874,11 @@ impl ChunkSigner {
     }
 
     /// Final 0-length chunk (must be sent after the body)
-    pub fn final_chunk(
-        &mut self,
-    ) -> Bytes {
+    pub fn final_chunk(&mut self) -> Bytes {
         // sign an empty payload chunk (same steps, len = 0)
         let string_to_sign = format!(
             "AWS4-HMAC-SHA256-PAYLOAD\n{}\n{}\n{}\n{}\n{}",
-            self.ts,
-            self.scope,
-            self.prev_sig,
-            EMPTY_HASH,
-            EMPTY_HASH
+            self.ts, self.scope, self.prev_sig, EMPTY_HASH, EMPTY_HASH
         );
         let key = hmac::Key::new(hmac::HMAC_SHA256, &self.signing_key);
         let sig = hex::encode(hmac::sign(&key, string_to_sign.as_bytes()));
@@ -888,10 +894,8 @@ pub fn resign_streaming_request(
     secret_key: &str,
     ts: DateTime<Utc>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-
     // let ts = chrono::Utc::now();
     req.insert_header("x-amz-date", ts.format("%Y%m%dT%H%M%SZ").to_string())?;
-
 
     let url = req.uri.to_string();
     let signer = AwsSign::new(
@@ -907,13 +911,11 @@ pub fn resign_streaming_request(
         None,
     );
 
-
     let auth = signer.sign();
     req.insert_header("authorization", auth)?;
 
     Ok(())
 }
-
 
 /// Maximum chunk payload we read from the client before signing.
 /// (4 MiB is what the Java/AWS SDKs use, but any size works.)
@@ -1068,7 +1070,6 @@ pub fn resign_streaming_request(
 //     }
 // }
 
-
 #[derive(Debug)]
 pub struct StreamingState {
     region: String,
@@ -1087,8 +1088,7 @@ impl StreamingState {
         ts: chrono::DateTime<chrono::Utc>,
         seed_signature: String,
     ) -> Self {
-        let signing_key = signing_key(&ts, &secret_key, &region, "s3")
-            .expect("signing key");
+        let signing_key = signing_key(&ts, &secret_key, &region, "s3").expect("signing key");
         Self {
             region,
             _access_key: access_key,
@@ -1110,7 +1110,7 @@ impl StreamingState {
         self.prior_sig = sig.clone();
         Ok(build_chunk_frame(payload, &sig))
     }
-    
+
     pub fn final_chunk(&mut self) -> io::Result<Bytes> {
         let sig = compute_chunk_signature(
             &[],
@@ -1122,7 +1122,6 @@ impl StreamingState {
         Ok(build_chunk_frame(&[], &sig))
     }
 }
-
 
 // fn sha256_hex(data: &[u8]) -> String {
 //     let mut hasher = Sha256::new();
@@ -1157,7 +1156,7 @@ fn compute_chunk_signature(
         time,
         scope,
         prior_sig,
-        EMPTY_SHA256,             // SHA256("")
+        EMPTY_SHA256, // SHA256("")
         sha256_hex(payload),
     );
 
@@ -1165,7 +1164,6 @@ fn compute_chunk_signature(
     let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
     let sig = hmac::sign(&key, string_to_sign.as_bytes());
     Ok(hex::encode(sig.as_ref()))
-    
 }
 
 /// Wrap a signed payload frame into the final on‑the‑wire representation.
@@ -1178,8 +1176,6 @@ fn build_chunk_frame(payload: &[u8], sig: &str) -> Bytes {
     buf.extend_from_slice(b"\r\n");
     buf.freeze()
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -1195,7 +1191,18 @@ mod tests {
         let datetime = chrono::Utc::now();
         let url: &str = "https://hi.s3.us-east-1.amazonaws.com/Prod/graphql";
         let map: HeaderMap = HeaderMap::new();
-        let aws_sign = AwsSign::new("GET", url, &datetime, &map, "us-east-1", "a", "b", "s3", "", None);
+        let aws_sign = AwsSign::new(
+            "GET",
+            url,
+            &datetime,
+            &map,
+            "us-east-1",
+            "a",
+            "b",
+            "s3",
+            "",
+            None,
+        );
         let s = aws_sign.canonical_request();
         assert_eq!(
             s,
@@ -1363,7 +1370,10 @@ mod tests {
     fn uri_encode_edge_cases() {
         assert_eq!(uri_encode("simple", true), "simple");
         assert_eq!(uri_encode("a b", true), "a%20b");
-        assert_eq!(uri_encode("/path/with/slash", true), "%2Fpath%2Fwith%2Fslash");
+        assert_eq!(
+            uri_encode("/path/with/slash", true),
+            "%2Fpath%2Fwith%2Fslash"
+        );
         assert_eq!(uri_encode("/path/with/slash", false), "/path/with/slash");
         assert_eq!(uri_encode("unicode✓", true).contains("%E2%9C%93"), true);
     }
@@ -1375,5 +1385,4 @@ mod tests {
         let qs = canonical_query_string(&parsed);
         assert_eq!(qs, "a=1%20space&b=2");
     }
-    
 }

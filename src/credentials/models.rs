@@ -28,12 +28,14 @@ impl BucketCredential {
 mod tests {
     use super::*;
 
-
     #[test]
     fn parse_bucket_credential_variants() {
         let hmac_json = r#"{ "access_key": "AK", "secret_key": "SK" }"#;
         match BucketCredential::parse(hmac_json) {
-            BucketCredential::Hmac { access_key, secret_key } => {
+            BucketCredential::Hmac {
+                access_key,
+                secret_key,
+            } => {
                 assert_eq!(access_key, "AK");
                 assert_eq!(secret_key, "SK");
             }
@@ -54,5 +56,4 @@ mod tests {
             panic!("Expected fallback ApiKey variant");
         }
     }
-
 }

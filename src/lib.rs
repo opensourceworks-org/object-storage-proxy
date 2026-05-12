@@ -1,15 +1,18 @@
 #![warn(clippy::all)]
 use async_trait::async_trait;
 use bytes::BytesMut;
-use credentials::signer::{self, resign_streaming_request, signature_is_valid_for_presigned, signature_is_valid_for_request};
+use credentials::signer::{
+    self, resign_streaming_request, signature_is_valid_for_presigned,
+    signature_is_valid_for_request,
+};
 use dashmap::DashMap;
 use dotenv::dotenv;
-use http::{StatusCode, Uri};
 use http::uri::Authority;
+use http::{StatusCode, Uri};
 use parsers::cos_map::{CosMapItem, parse_cos_map};
 use parsers::keystore::parse_hmac_list;
-use pingora::http::ResponseHeader;
 use pingora::Result;
+use pingora::http::ResponseHeader;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
 use pingora::upstreams::peer::HttpPeer;
@@ -21,9 +24,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-
 // use utils::functions::inspect_callable_signature;
-
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -34,7 +35,6 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
 
-
 pub mod parsers;
 use parsers::credentials::{parse_presigned_params, parse_token_from_header};
 use parsers::path::{parse_path, parse_query};
@@ -42,19 +42,16 @@ use parsers::path::{parse_path, parse_query};
 pub mod credentials;
 use credentials::{
     secrets_proxy::{SecretsCache, get_bearer, get_credential_for_bucket},
-    signer::sign_request
+    signer::sign_request,
 };
 
 pub mod utils;
-use utils::validator::{AuthCache, validate_request};
 use utils::response::write_error_response_with_header;
-
-
+use utils::validator::{AuthCache, validate_request};
 
 static REQ_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
 const DEFAULT_SERVER_NAME: &str = "<osp⚡>";
-
 
 #[derive(Clone)]
 pub struct UrlTracker {
@@ -85,7 +82,10 @@ impl UrlTracker {
     }
 
     pub fn get_all(&self) -> Vec<(String, usize)> {
-        self.counts.iter().map(|e| (e.key().clone(), *e.value())).collect()
+        self.counts
+            .iter()
+            .map(|e| (e.key().clone(), *e.value()))
+            .collect()
     }
 }
 
@@ -149,14 +149,14 @@ pub struct ProxyServerConfig {
     #[pyo3(get, set)]
     pub skip_signature_validation: Option<bool>,
 
-   #[pyo3(get, set)]
-   pub hmac_fetcher: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub hmac_fetcher: Option<Py<PyAny>>,
 
-   #[pyo3(get, set)]
-   pub max_presign_url_usage_attempts: Option<usize>,
+    #[pyo3(get, set)]
+    pub max_presign_url_usage_attempts: Option<usize>,
 
-   #[pyo3(get, set)]
-   pub server_name: String,
+    #[pyo3(get, set)]
+    pub server_name: String,
 }
 
 impl Default for ProxyServerConfig {
@@ -173,7 +173,7 @@ impl Default for ProxyServerConfig {
             skip_signature_validation: Some(false),
             hmac_fetcher: None,
             max_presign_url_usage_attempts: Some(3),
-            server_name: "<osp⚡>".to_string()
+            server_name: "<osp⚡>".to_string(),
         }
     }
 }
@@ -231,7 +231,9 @@ impl ProxyServerConfig {
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "ProxyServerConfig(http_port={}, https_port={}, threads={:?})",
-            self.http_port.unwrap_or(0), self.https_port.unwrap_or(0), self.threads
+            self.http_port.unwrap_or(0),
+            self.https_port.unwrap_or(0),
+            self.threads
         ))
     }
 }
@@ -263,7 +265,6 @@ pub struct MyCtx {
     hmac_fetcher: Option<PyObject>,
     is_presigned: Option<bool>,
     stream_state: Option<signer::StreamingState>,
-    
 }
 
 // impl MyCtx {
@@ -311,7 +312,6 @@ impl ProxyHttp for MyProxy {
 
         let path = session.req_header().uri.path();
 
-
         let parse_path_result = parse_path(path);
         if parse_path_result.is_err() {
             error!("Failed to parse path: {:?}", parse_path_result);
@@ -327,7 +327,8 @@ impl ProxyHttp for MyProxy {
             map.get(&hdr_bucket).cloned()
         };
 
-        let addressing_style = bucket_config.clone()
+        let addressing_style = bucket_config
+            .clone()
             .and_then(|config| config.addressing_style)
             .unwrap_or("virtual".to_string());
 
@@ -337,23 +338,22 @@ impl ProxyHttp for MyProxy {
                     config.host.to_owned()
                 } else {
                     format!("{}.{}", bucket, config.host)
-                }            
-            },
+                }
+            }
             None => {
                 format!("{}.{}", bucket, self.cos_endpoint)
             }
         };
 
-        let port = bucket_config.clone()
+        let port = bucket_config
+            .clone()
             .map(|config| config.port)
             .unwrap_or(443);
 
         let addr = (endpoint.clone(), port);
 
-        let endpoint_is_tls = bucket_config
-            .and_then(|config| config.tls)
-            .unwrap_or(true);
-        
+        let endpoint_is_tls = bucket_config.and_then(|config| config.tls).unwrap_or(true);
+
         debug!(endpoint_is_tls, endpoint, "resolved upstream peer");
 
         let mut peer = Box::new(HttpPeer::new(addr, endpoint_is_tls, endpoint.clone()));
@@ -363,7 +363,6 @@ impl ProxyHttp for MyProxy {
 
         peer.options.max_h2_streams = 128;
         peer.options.h2_ping_interval = Some(Duration::from_secs(30));
-
 
         // peer.options.idle_timeout          = Some(Duration::from_secs(300));
         // peer.options.connection_timeout    = Some(Duration::from_secs(30));
@@ -386,7 +385,6 @@ impl ProxyHttp for MyProxy {
         Ok(peer)
     }
 
-
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
 
@@ -406,7 +404,12 @@ impl ProxyHttp for MyProxy {
         }
         let tracked_count = self.tracker.get(&url).unwrap_or(0);
         if is_presigned_url && tracked_count > self.max_presign_url_usage_attempts.unwrap_or(3) {
-            warn!(url, tracked_count, max = self.max_presign_url_usage_attempts.unwrap_or(3), "presigned URL usage limit exceeded, denying");
+            warn!(
+                url,
+                tracked_count,
+                max = self.max_presign_url_usage_attempts.unwrap_or(3),
+                "presigned URL usage limit exceeded, denying"
+            );
             let msg = format!(
                 "URL ({}) has been tracked too many times: {} (max={}).  Access Denied!",
                 path,
@@ -424,7 +427,6 @@ impl ProxyHttp for MyProxy {
             // // session
             // //     .write_response_body(Some(msg.into()), true)
             // //     .await?;
-
 
             // session.respond_error_with_body(403, msg.into()).await?;
             write_error_response_with_header(session, StatusCode::FORBIDDEN, msg).await?;
@@ -452,8 +454,14 @@ impl ProxyHttp for MyProxy {
             error!("Failed to parse query: {}", rest);
         }
 
-        query_dict.insert("method".to_string(), session.req_header().method.to_string());
-        query_dict.insert("path".to_string(), session.req_header().uri.path().to_string());
+        query_dict.insert(
+            "method".to_string(),
+            session.req_header().method.to_string(),
+        );
+        query_dict.insert(
+            "path".to_string(),
+            session.req_header().uri.path().to_string(),
+        );
         // insert source
         query_dict.insert(
             "source".to_string(),
@@ -472,12 +480,15 @@ impl ProxyHttp for MyProxy {
             .req_header()
             .headers
             .get("expect")
-            .map(|v| v.to_str().unwrap_or("").eq_ignore_ascii_case("100-continue"))
+            .map(|v| {
+                v.to_str()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case("100-continue")
+            })
             .unwrap_or(false)
         {
             return Ok(false);
         };
-
 
         let path = session.req_header().uri.path().to_owned();
 
@@ -507,33 +518,31 @@ impl ProxyHttp for MyProxy {
 
         if auth_header.is_empty() {
             if let Some(q) = session.req_header().uri.query()
-                && q.contains("X-Amz-Credential") {
-                    let (_, p) = parse_presigned_params(&format!("?{q}"))
-                        .map_err(|_| pingora::Error::new_str("Failed to parse presigned params"))?;
-                    access_key = p.access_key.clone();
-                }
+                && q.contains("X-Amz-Credential")
+            {
+                let (_, p) = parse_presigned_params(&format!("?{q}"))
+                    .map_err(|_| pingora::Error::new_str("Failed to parse presigned params"))?;
+                access_key = p.access_key.clone();
+            }
         } else {
             access_key = parse_token_from_header(&auth_header)
-            .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
-            .1
-            .to_string();
+                .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
+                .1
+                .to_string();
         }
 
         let is_authorized = if let Some(py_cb) = &ctx.validator {
-
             let is_multipart = session
                 .req_header()
                 .uri
                 .query()
                 .is_some_and(|q| q.contains("uploadId="));
 
-
             info!("CHECKING SIGNATURE");
             if let Some(skip) = self.skip_signature_validation {
                 if skip || is_multipart {
                     info!("Skipping local signature check");
                     // continue
-                    
                 } else {
                     // presigned
                     info!("Checking presigned signature");
@@ -544,20 +553,25 @@ impl ProxyHttp for MyProxy {
 
                         // ensure we have the secret_key in the keystore
                         if !ctx.hmac_keystore.read().await.contains_key(&access_key) {
-                            debug!("No key in keystore, trying to fetch via hmac_fetcher for ->{}<-", access_key);
+                            debug!(
+                                "No key in keystore, trying to fetch via hmac_fetcher for ->{}<-",
+                                access_key
+                            );
                             // fetch via hmac_fetcher exactly as you do below…
                             if let Some(py_fetcher) = &ctx.hmac_fetcher {
                                 // call Python callback
                                 let cb = py_fetcher;
                                 let secret: PyResult<String> = Python::with_gil(|py| {
-                                    cb.call1(py, (&access_key,))
-                                      .and_then(|r| r.extract(py))
+                                    cb.call1(py, (&access_key,)).and_then(|r| r.extract(py))
                                 });
                                 debug!("Got secret: {:#?}", secret);
                                 match secret {
                                     Ok(secret_key) => {
                                         debug!("got key and inserting into keystore");
-                                        ctx.hmac_keystore.write().await.insert(access_key.clone().to_string(), secret_key);
+                                        ctx.hmac_keystore
+                                            .write()
+                                            .await
+                                            .insert(access_key.clone().to_string(), secret_key);
                                     }
                                     Err(_) => {
                                         // no key → unauthorized
@@ -565,7 +579,8 @@ impl ProxyHttp for MyProxy {
                                             session,
                                             StatusCode::UNAUTHORIZED,
                                             "No key found for presigned URL".to_string(),
-                                        ).await?;
+                                        )
+                                        .await?;
                                         // session.respond_error(401).await?;
                                         return Ok(true);
                                     }
@@ -576,105 +591,120 @@ impl ProxyHttp for MyProxy {
                                     session,
                                     StatusCode::UNAUTHORIZED,
                                     "No key found for presigned URL".to_string(),
-                                ).await?;
+                                )
+                                .await?;
                                 return Ok(true);
                             }
-     
                         }
                         debug!("now checking if the signature is valid for presigned...");
-                        let sk = ctx.hmac_keystore.read().await.get(&access_key)
+                        let sk = ctx
+                            .hmac_keystore
+                            .read()
+                            .await
+                            .get(&access_key)
                             .expect("key was just inserted")
                             .clone();
                         debug!("got secret {} from keystore", sk);
                         debug!("RAW_PATH       = {}", &session.req_header().uri);
-                        debug!("RAW_HOST_HDR   = {:?}", &session.req_header().headers.get("host"));
+                        debug!(
+                            "RAW_HOST_HDR   = {:?}",
+                            &session.req_header().headers.get("host")
+                        );
                         let ok = match signature_is_valid_for_presigned(session, &sk).await {
-                            Ok(b)  => b,
+                            Ok(b) => b,
                             Err(e) => {
-                                error!("presigned-URL validation error: {e}");   // <-- keep the info
+                                error!("presigned-URL validation error: {e}"); // <-- keep the info
                                 return Err(pingora::Error::new_str("Failed to check signature"));
                             }
-                        };                       
+                        };
                         info!("is signature valid?: {}", ok);
                         if !ok {
-                            let msg = format!("Signature invalid for presigned URL: {}", &session.req_header().uri.path());
+                            let msg = format!(
+                                "Signature invalid for presigned URL: {}",
+                                &session.req_header().uri.path()
+                            );
                             session.respond_error_with_body(401, msg.into()).await?;
                             return Ok(true);
                         }
                     } else {
-                    info!("processing a regular request");
+                        info!("processing a regular request");
 
-                    let has_key = {
-                        let map = ctx.hmac_keystore.read().await;
-                        map.contains_key(&access_key)
-                    };
-                    if !has_key {
-                        if let Some(py_fetcher) = &ctx.hmac_fetcher {
-                            // call Python callback
-                            let cb = py_fetcher;
-                            let secret: PyResult<String> = Python::with_gil(|py| {
-                                cb.call1(py, (&access_key,))
-                                  .and_then(|r| r.extract(py))
-                            });
-                            match secret {
-                                Ok(secret_key) => {
-                                    ctx.hmac_keystore.write().await.insert(access_key.clone().to_string(), secret_key);
+                        let has_key = {
+                            let map = ctx.hmac_keystore.read().await;
+                            map.contains_key(&access_key)
+                        };
+                        if !has_key {
+                            if let Some(py_fetcher) = &ctx.hmac_fetcher {
+                                // call Python callback
+                                let cb = py_fetcher;
+                                let secret: PyResult<String> = Python::with_gil(|py| {
+                                    cb.call1(py, (&access_key,)).and_then(|r| r.extract(py))
+                                });
+                                match secret {
+                                    Ok(secret_key) => {
+                                        ctx.hmac_keystore
+                                            .write()
+                                            .await
+                                            .insert(access_key.clone().to_string(), secret_key);
+                                    }
+                                    Err(_) => {
+                                        // no key → unauthorized
+                                        // session.respond_error(401).await?;
+                                        write_error_response_with_header(
+                                            session,
+                                            StatusCode::UNAUTHORIZED,
+                                            "No key found for request".to_string(),
+                                        )
+                                        .await?;
+                                        return Ok(true);
+                                    }
                                 }
-                                Err(_) => {
-                                    // no key → unauthorized
-                                    // session.respond_error(401).await?;
-                                    write_error_response_with_header(
-                                        session,
-                                        StatusCode::UNAUTHORIZED,
-                                        "No key found for request".to_string(),
-                                    ).await?;
-                                    return Ok(true);
-                                }
+                            } else {
+                                // session.respond_error(401).await?;
+                                write_error_response_with_header(
+                                    session,
+                                    StatusCode::UNAUTHORIZED,
+                                    "No key found for request".to_string(),
+                                )
+                                .await?;
+                                return Ok(true);
                             }
-                        } else {
-                            // session.respond_error(401).await?;
+                        }
+                        let secret_key = {
+                            let map = ctx.hmac_keystore.read().await;
+                            map.get(&access_key).cloned()
+                        };
+
+                        info!("Checking signature");
+                        let sig_ok = match signature_is_valid_for_request(
+                            &auth_header,
+                            session,
+                            &secret_key.expect("key was just inserted"),
+                        )
+                        .await
+                        {
+                            Ok(true) => true,
+                            Ok(false) => {
+                                info!("Signature invalid");
+                                false
+                            }
+                            Err(err) => {
+                                error!("Signature check error: {}", err);
+                                false
+                            }
+                        };
+
+                        // if signature failed, skip further validation
+                        if !sig_ok {
+                            //  session.respond_error(401).await?;
                             write_error_response_with_header(
                                 session,
                                 StatusCode::UNAUTHORIZED,
-                                "No key found for request".to_string(),
-                            ).await?;
+                                "Signature invalid".to_string(),
+                            )
+                            .await?;
                             return Ok(true);
                         }
-                    }
-                    let secret_key = {
-                                let map = ctx.hmac_keystore.read().await;
-                                map.get(&access_key).cloned()
-                            };
-
-                    info!("Checking signature");
-                     let sig_ok = match signature_is_valid_for_request(
-                         &auth_header,
-                         session,
-                         &secret_key.expect("key was just inserted"),
-                     )
-                     .await
-                     {
-                         Ok(true)  => true, 
-                         Ok(false) => {
-                             info!("Signature invalid");
-                             false 
-                         }
-                         Err(err)  => {
-                             error!("Signature check error: {}", err);
-                             false
-                         }
-                     };
-                     
-                     // if signature failed, skip further validation
-                     if !sig_ok {
-                        //  session.respond_error(401).await?;
-                         write_error_response_with_header(
-                             session,
-                             StatusCode::UNAUTHORIZED,
-                             "Signature invalid".to_string(),
-                         ).await?;
-                         return Ok(true);
-                     }
                     }
                 }
             }
@@ -714,7 +744,8 @@ impl ProxyHttp for MyProxy {
                 session,
                 StatusCode::UNAUTHORIZED,
                 format!("Access denied for bucket: {}", bucket),
-            ).await?;
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -758,7 +789,10 @@ impl ProxyHttp for MyProxy {
                 ));
             }
         }
-        debug!("request_filter::Credentials checked for bucket: {}. End of function.", hdr_bucket);
+        debug!(
+            "request_filter::Credentials checked for bucket: {}. End of function.",
+            hdr_bucket
+        );
         debug!("request_filter::end");
         Ok(false)
     }
@@ -769,35 +803,37 @@ impl ProxyHttp for MyProxy {
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
-
         if let Some(presigned) = ctx.is_presigned
-            && presigned {
-                debug!("upstream_request_filter::presigned");
-                let cleaned_q = upstream_request
-                    .uri
-                    .query()
-                    .unwrap_or("")
-                    .split('&')
-                    .filter(|kv| !kv.starts_with("X-Amz-"))
-                    .collect::<Vec<_>>()
-                    .join("&");
+            && presigned
+        {
+            debug!("upstream_request_filter::presigned");
+            let cleaned_q = upstream_request
+                .uri
+                .query()
+                .unwrap_or("")
+                .split('&')
+                .filter(|kv| !kv.starts_with("X-Amz-"))
+                .collect::<Vec<_>>()
+                .join("&");
 
             let _ = upstream_request.remove_header("authorization");
-        
+
             let new_path_and_query = if cleaned_q.is_empty() {
                 upstream_request.uri.path().to_owned()
             } else {
                 format!("{}?{}", upstream_request.uri.path(), cleaned_q)
             };
-        
-            upstream_request.set_uri(new_path_and_query.try_into()
-                .map_err(|_| pingora::Error::new_str("invalid URI after query rewrite"))?);
+
+            upstream_request.set_uri(
+                new_path_and_query
+                    .try_into()
+                    .map_err(|_| pingora::Error::new_str("invalid URI after query rewrite"))?,
+            );
         }
 
         let _ = upstream_request.remove_header("accept-encoding");
 
         debug!("upstream_request_filter::start");
-
 
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path())
             .map_err(|_| pingora::Error::new_str("failed to parse upstream request path"))?;
@@ -821,17 +857,14 @@ impl ProxyHttp for MyProxy {
             .and_then(|config| config.addressing_style)
             .unwrap_or("virtual".to_string());
 
-
         let this_url = match addressing_style.as_str() {
             "virtual" => my_updated_url,
             _ => {
-
                 let u_url = format!("/{}{}", bucket, my_updated_url);
                 debug!(u_url, "using path addressing style");
                 &u_url.clone()
-            },
+            }
         };
-
 
         let endpoint = match bucket_config.clone() {
             Some(cfg) => {
@@ -883,13 +916,12 @@ impl ProxyHttp for MyProxy {
             "x-amz-trailer",
             "x-amz-sdk-checksum-algorithm",
             "range",
-            "expect",                      
+            "expect",
             // "content-encoding",
             // "range",
             // "trailer",
             // "x-amz-trailer",
         ];
-
 
         let to_check: Vec<String> = upstream_request
             .headers
@@ -897,10 +929,8 @@ impl ProxyHttp for MyProxy {
             .map(|(name, _)| name.as_str().to_owned())
             .collect();
 
-
         for name in to_check {
-            let keep = allowed.contains(&name.as_str())
-                || name.starts_with("x-amz-checksum-");
+            let keep = allowed.contains(&name.as_str()) || name.starts_with("x-amz-checksum-");
             if !keep {
                 let _ = upstream_request.remove_header(&name);
             }
@@ -908,7 +938,6 @@ impl ProxyHttp for MyProxy {
 
         if maybe_hmac {
             debug!("HMAC: Signing request for bucket: {}", hdr_bucket);
-
 
             let streaming = {
                 upstream_request
@@ -918,9 +947,7 @@ impl ProxyHttp for MyProxy {
                     .unwrap_or(false)
             };
 
-
             if streaming {
-
                 let streaming_header = upstream_request
                     .headers
                     .get("x-amz-content-sha256")
@@ -929,9 +956,9 @@ impl ProxyHttp for MyProxy {
 
                 debug!(streaming_header, "streaming upload detected");
 
-                
-                let cfg = bucket_config.as_ref()
-                    .ok_or_else(|| pingora::Error::new_str("no bucket config for streaming upload"))?;
+                let cfg = bucket_config.as_ref().ok_or_else(|| {
+                    pingora::Error::new_str("no bucket config for streaming upload")
+                })?;
                 let access_key = cfg.access_key.as_deref().unwrap_or_default().to_string();
                 let secret_key = cfg.secret_key.as_deref().unwrap_or_default().to_string();
                 let region = cfg.region.as_deref().unwrap_or_default().to_string();
@@ -945,7 +972,7 @@ impl ProxyHttp for MyProxy {
 
                 // remove the original streaming headers we cannot forward.
                 // upstream_request.remove_header("x-amz-decoded-content-length");
-                
+
                 //  stream-chunk.
                 debug!(headers = ?upstream_request.headers, "upstream request headers before streaming rewrite");
                 upstream_request.remove_header("content-length");
@@ -953,21 +980,16 @@ impl ProxyHttp for MyProxy {
                 upstream_request.insert_header("transfer-encoding", "chunked")?;
                 // upstream_request.insert_header("x-amz-decoded-content-length", decoded_len)?;
                 upstream_request.set_send_end_stream(false);
-                
+
                 // produce *seed* signature and signing key that will be reused
                 //    for every DATA frame in the forthcoming request_body_filter.
                 let ts = chrono::Utc::now();
-                resign_streaming_request(
-                    upstream_request,
-                    &region,
-                    &access_key,
-                    &secret_key,
-                    ts,
-                ).map_err(|e| {
+                resign_streaming_request(upstream_request, &region, &access_key, &secret_key, ts)
+                    .map_err(|e| {
                     error!("Failed to sign request: {e}");
                     pingora::Error::new_str("Failed to sign request")
                 })?;
-                
+
                 let seed_sig = upstream_request
                     .headers
                     .get("authorization")
@@ -975,26 +997,27 @@ impl ProxyHttp for MyProxy {
                     .and_then(|v| v.split("Signature=").nth(1))
                     .expect("seed signature missing")
                     .to_owned();
-                
-                // stash everything the body filter will need.
-                ctx.stream_state = Some(
-                    signer::StreamingState::new(
-                        region.to_string(),
-                        access_key.to_string(),
-                        secret_key.to_string(),
-                        ts,
-                        seed_sig,
-                    )
-                );                
-            } else {
 
-                sign_request(upstream_request, bucket_config.as_ref()
-                    .ok_or_else(|| pingora::Error::new_str("no bucket config for signing"))?)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to sign request for {}: {e}", hdr_bucket);
-                        pingora::Error::new_str("Failed to sign request")
-                    })?;
+                // stash everything the body filter will need.
+                ctx.stream_state = Some(signer::StreamingState::new(
+                    region.to_string(),
+                    access_key.to_string(),
+                    secret_key.to_string(),
+                    ts,
+                    seed_sig,
+                ));
+            } else {
+                sign_request(
+                    upstream_request,
+                    bucket_config
+                        .as_ref()
+                        .ok_or_else(|| pingora::Error::new_str("no bucket config for signing"))?,
+                )
+                .await
+                .map_err(|e| {
+                    error!("Failed to sign request for {}: {e}", hdr_bucket);
+                    pingora::Error::new_str("Failed to sign request")
+                })?;
             }
 
             debug!("Request signed for bucket: {}", hdr_bucket);
@@ -1056,44 +1079,37 @@ impl ProxyHttp for MyProxy {
     ) -> Result<()> {
         // 0. Only active when we stashed a StreamingState in the request filter
         let Some(state) = ctx.stream_state.as_mut() else {
-            return Ok(())
+            return Ok(());
         };
 
         // 1. Flush frames are empty and *not* EOS - just ignore them
         let Some(payload) = body.take() else {
-            return Ok(())
+            return Ok(());
         };
         if payload.is_empty() && !end_of_stream {
-            return Ok(())
+            return Ok(());
         };
 
         // 2. Build the outgoing buffer
         let mut out = BytesMut::new();
         if !payload.is_empty() {
-            out.extend_from_slice(&state.sign_chunk(&payload)
-                                    .map_err(|e| {
-                                        error!("Failed to sign chunk: {e}");
-                                        pingora::Error::new_str("Failed to sign chunk")
-                                    }
-                                    )?)
-                                        ;
+            out.extend_from_slice(&state.sign_chunk(&payload).map_err(|e| {
+                error!("Failed to sign chunk: {e}");
+                pingora::Error::new_str("Failed to sign chunk")
+            })?);
         }
         if end_of_stream {
-            out.extend_from_slice(&state.final_chunk()
-                                    .map_err(|e| {
-                                        error!("Failed to sign trailer: {e}");
-                                        pingora::Error::new_str("Failed to sign trailer")
-                                    }
-                                )?);
-            ctx.stream_state = None;          // upload finished
+            out.extend_from_slice(&state.final_chunk().map_err(|e| {
+                error!("Failed to sign trailer: {e}");
+                pingora::Error::new_str("Failed to sign trailer")
+            })?);
+            ctx.stream_state = None; // upload finished
         }
 
         // 3. Hand the encoded bytes to Pingora
         *body = Some(out.freeze());
         Ok(())
-
     }
-
 }
 
 pub fn init_tracing() {
@@ -1127,7 +1143,9 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
 
     debug!("HMAC keys: {:#?}", &local_hmac_map);
 
-    let cosmap = Arc::new(RwLock::new(parse_cos_map(py, &run_args.cos_map).expect("failed to parse cos_map")));
+    let cosmap = Arc::new(RwLock::new(
+        parse_cos_map(py, &run_args.cos_map).expect("failed to parse cos_map"),
+    ));
     let hmac_keystore = Arc::new(RwLock::new(local_hmac_map));
 
     let mut my_server = Server::new(None).expect("failed to create pingora server");
@@ -1183,7 +1201,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         let https_addr = format!("0.0.0.0:{}", https_port);
         my_proxy.add_tls_with_settings(https_addr.as_str(), /*tcp_opts*/ None, tls);
     }
-    
+
     my_server.add_service(my_proxy);
 
     debug!("{:?}", &my_server.configuration);

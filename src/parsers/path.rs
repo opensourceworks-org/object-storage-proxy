@@ -1,7 +1,13 @@
 use std::{collections::HashMap, string::FromUtf8Error};
 
 use nom::{
-    branch::alt, bytes::complete::{tag, take_until, take_while1}, character::complete::char, combinator::{eof, map, map_res, rest}, multi::separated_list0, sequence::{preceded, separated_pair}, IResult, Parser
+    IResult, Parser,
+    branch::alt,
+    bytes::complete::{tag, take_until, take_while1},
+    character::complete::char,
+    combinator::{eof, map, map_res, rest},
+    multi::separated_list0,
+    sequence::{preceded, separated_pair},
 };
 
 pub(crate) fn parse_path(input: &str) -> IResult<&str, (&str, &str)> {
@@ -31,16 +37,15 @@ fn key_value_pair(input: &str) -> IResult<&str, (String, String)> {
         map_res(take_until("="), decode_segment),
         tag("="),
         map_res(take_until_either("&"), decode_segment),
-    )).parse(input)?;
+    ))
+    .parse(input)?;
     Ok((input, (key, value)))
 }
 
 fn take_until_either<'a>(end: &'static str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
-    move |input: &'a str| {
-        match input.find(end) {
-            Some(idx) => Ok((&input[idx..], &input[..idx])),
-            None => rest(input),
-        }
+    move |input: &'a str| match input.find(end) {
+        Some(idx) => Ok((&input[idx..], &input[..idx])),
+        None => rest(input),
     }
 }
 
@@ -49,7 +54,6 @@ pub fn parse_query(input: &str) -> IResult<&str, HashMap<String, String>> {
     let map = pairs.into_iter().collect::<HashMap<_, _>>();
     Ok((rest, map))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -122,6 +126,4 @@ mod tests {
         assert_eq!(map.get("path").unwrap(), "/usr/bin");
         assert_eq!(map.get("lang").unwrap(), "Rust&C++");
     }
-
- 
 }

@@ -50,7 +50,8 @@ impl AuthCache {
         if let Some(entry) = {
             let map = self.inner.read().unwrap();
             map.get(key).cloned()
-        } && Instant::now() < entry.expires_at {
+        } && Instant::now() < entry.expires_at
+        {
             debug!("Cache hit for key.");
             return Ok(entry.authorized);
         }
@@ -67,7 +68,8 @@ impl AuthCache {
         if let Some(entry) = {
             let map = self.inner.read().expect("lock poisoned");
             map.get(key).cloned()
-        } && Instant::now() < entry.expires_at {
+        } && Instant::now() < entry.expires_at
+        {
             return Ok(entry.authorized);
         }
 
@@ -132,8 +134,8 @@ pub async fn validate_request(
 
     let authorized = if takes_request {
         task::spawn_blocking(move || {
-            Python::with_gil(
-                |py| match callback.call1(py, (token.as_str(), bucket.as_str(), &req)) {
+            Python::with_gil(|py| {
+                match callback.call1(py, (token.as_str(), bucket.as_str(), &req)) {
                     Ok(result_obj) => result_obj
                         .extract::<bool>(py)
                         .map_err(|_| "Failed to extract boolean".to_string()),
@@ -141,8 +143,8 @@ pub async fn validate_request(
                         error!("Python callback error: {:?}", e);
                         Err("Inner Python exception".to_string())
                     }
-                },
-            )
+                }
+            })
         })
         .await
         .map_err(|e| format!("Join error: {:?}", e))??
@@ -167,7 +169,6 @@ pub async fn validate_request(
     Ok(authorized)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,28 +190,39 @@ mod tests {
                 }
             }
         };
-        let res1 = cache.get_or_validate(key, Duration::from_secs(1), validator).await.unwrap();
+        let res1 = cache
+            .get_or_validate(key, Duration::from_secs(1), validator)
+            .await
+            .unwrap();
         assert!(res1);
         assert_eq!(*calls.lock().await, 1);
 
         // second call within TTL: cache hit, no new call
-        let res2 = cache.get_or_validate(key, Duration::from_secs(1), {
-            let calls = Arc::clone(&calls);
-            move || {
+        let res2 = cache
+            .get_or_validate(key, Duration::from_secs(1), {
                 let calls = Arc::clone(&calls);
-                async move {
-                    let mut calls_lock = calls.lock().await;
-                    *calls_lock += 1;
-                    Ok::<bool, std::convert::Infallible>(false)
+                move || {
+                    let calls = Arc::clone(&calls);
+                    async move {
+                        let mut calls_lock = calls.lock().await;
+                        *calls_lock += 1;
+                        Ok::<bool, std::convert::Infallible>(false)
+                    }
                 }
-            }
-        }).await.unwrap();
+            })
+            .await
+            .unwrap();
         assert!(res2);
         assert_eq!(*calls.lock().await, 1);
 
         // wait for expiry
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let res3 = cache.get_or_validate(key, Duration::from_secs(1), || async move { Ok::<bool, std::convert::Infallible>(false) }).await.unwrap();
+        let res3 = cache
+            .get_or_validate(key, Duration::from_secs(1), || async move {
+                Ok::<bool, std::convert::Infallible>(false)
+            })
+            .await
+            .unwrap();
         assert!(!res3);
     }
 }

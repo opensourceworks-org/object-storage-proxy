@@ -160,10 +160,10 @@ pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn s
 pub(crate) async fn get_credential_for_bucket(
     callback: &PyObject,
     bucket: String,
-    token: String
+    token: String,
 ) -> PyResult<String> {
     Python::with_gil(|py| {
-        let s = callback.call1(py, (token, bucket,))?;
+        let s = callback.call1(py, (token, bucket))?;
         s.extract::<String>(py)
     })
 }
@@ -275,9 +275,11 @@ mod tests {
         let cache = SecretsCache::new();
         let key = "test".to_string();
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         cache.insert(key.clone(), "cached_token".to_string(), now + 3600);
-
 
         let fetcher = || async { panic!("Should not be called on cache hit") };
 
@@ -290,35 +292,54 @@ mod tests {
         let cache = SecretsCache::new();
         let key = "test2".to_string();
         // expired token
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         cache.insert(key.clone(), "old_token".to_string(), now);
-    
+
         // fetcher returns new token
         let fetcher = move || async {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            Ok(IamResponse { access_token: "new_token".into(), expires_in: 3600, expiration: now + 7200 })
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            Ok(IamResponse {
+                access_token: "new_token".into(),
+                expires_in: 3600,
+                expiration: now + 7200,
+            })
         };
-    
+
         let result = cache.get(&key, fetcher).await;
         assert_eq!(result, Some("new_token".to_string()));
     }
-    
+
     #[tokio::test]
     async fn secrets_cache_invalidate_works() {
         let cache = SecretsCache::new();
         let key = "test3".to_string();
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         cache.insert(key.clone(), "token".to_string(), now + 3600);
-    
+
         cache.invalidate(&key);
-    
+
         // now fetcher must be called
         let fetcher = move || async {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            Ok(IamResponse { access_token: "fresh_token".into(), expires_in: 3600, expiration: now + 3600 })
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            Ok(IamResponse {
+                access_token: "fresh_token".into(),
+                expires_in: 3600,
+                expiration: now + 3600,
+            })
         };
         let result = cache.get(&key, fetcher).await;
         assert_eq!(result, Some("fresh_token".to_string()));
     }
-
 }

@@ -5,7 +5,6 @@ use pyo3::pyclass;
 pub struct HmacKeyStore {
     access_key: String,
     secret_key: String,
-
 }
 
 impl HmacKeyStore {

@@ -2,26 +2,23 @@ use std::collections::HashMap;
 
 use pyo3::{exceptions, prelude::*};
 
-
-pub fn parse_hmac_list(
-    py: Python,
-    hmac_list: &PyObject,
-) -> PyResult<HashMap<String, String>> {
+pub fn parse_hmac_list(py: Python, hmac_list: &PyObject) -> PyResult<HashMap<String, String>> {
     // let list: Vec<HashMap<String, String>> = hmac_list.try_into().unwrap();
     let list: Vec<HashMap<String, String>> = hmac_list.extract(py).expect("dict mismatch");
     let mut map = HashMap::new();
 
     for item in list {
-        let access_key: String = item.get("access_key")
+        let access_key: String = item
+            .get("access_key")
             .ok_or_else(|| exceptions::PyKeyError::new_err("access_key not found"))?
             .to_string();
-        let secret_key: String = item.get("secret_key")
+        let secret_key: String = item
+            .get("secret_key")
             .ok_or_else(|| exceptions::PyKeyError::new_err("secret_key not found"))?
             .to_string();
         map.insert(access_key, secret_key);
     }
     Ok(map)
-
 }
 
 // #[cfg(test)]
