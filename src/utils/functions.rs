@@ -1,5 +1,4 @@
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAny, PyFunction};
 use tracing::debug;
 
 pub(crate) fn callable_accepts_request(py: Python<'_>, callable: &PyObject) -> PyResult<bool> {

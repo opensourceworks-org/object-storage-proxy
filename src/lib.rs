@@ -1,12 +1,11 @@
 #![warn(clippy::all)]
 use async_trait::async_trait;
-use bytes::{BytesMut, Bytes};
+use bytes::BytesMut;
 use credentials::signer::{self, resign_streaming_request, signature_is_valid_for_presigned, signature_is_valid_for_request};
 use dashmap::DashMap;
 use dotenv::dotenv;
 use http::{StatusCode, Uri};
 use http::uri::Authority;
-use nom::Err;
 use parsers::cos_map::{CosMapItem, parse_cos_map};
 use parsers::keystore::parse_hmac_list;
 use pingora::http::ResponseHeader;
@@ -17,7 +16,6 @@ use pingora::upstreams::peer::HttpPeer;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyModuleMethods};
 use pyo3::{Bound, PyResult, Python, pyclass, pyfunction, pymodule, wrap_pyfunction};
-use std::path;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -244,6 +242,7 @@ pub struct MyProxy {
     hmac_fetcher: Option<PyObject>,
     tracker: UrlTracker,
     max_presign_url_usage_attempts: Option<usize>,
+    #[allow(dead_code)]
     server_name: String,
 }
 
