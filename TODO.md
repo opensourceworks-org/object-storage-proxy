@@ -2,7 +2,7 @@
 
 ## Documentation
 
-- [ ] 1. Rewrite README.md — clean up structure, remove personal paths, add license/rust-edition badges, clear opener paragraph, move long code examples to `examples/`.
+- [x] 1. Rewrite README.md — clean up structure, remove personal paths, add license/rust-edition badges, clear opener paragraph, move long code examples to `examples/`.
 - [x] 2. Add CONTRIBUTING.md — fork, branch, build, test, PR workflow and commit convention.
 - [x] 3. Add CHANGELOG.md — start from 0.4.3 with an Unreleased section.
 - [x] 4. Add CODE_OF_CONDUCT.md — Contributor Covenant.
