@@ -8,7 +8,7 @@ use nom::character::complete::char as nomchar;
 use percent_encoding::percent_decode_str;
 use nom::error::{Error, ErrorKind, make_error};
 
-fn miss<'a>(i: &'a str) -> nom::Err<Error<&'a str>> {
+fn miss(i: &str) -> nom::Err<Error<&str>> {
     nom::Err::Error(make_error(i, ErrorKind::Tag))
 }
 

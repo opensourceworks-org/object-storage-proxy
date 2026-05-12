@@ -50,11 +50,9 @@ impl AuthCache {
         if let Some(entry) = {
             let map = self.inner.read().unwrap();
             map.get(key).cloned()
-        } {
-            if Instant::now() < entry.expires_at {
-                debug!("Cache hit for key.");
-                return Ok(entry.authorized);
-            }
+        } && Instant::now() < entry.expires_at {
+            debug!("Cache hit for key.");
+            return Ok(entry.authorized);
         }
         debug!("Cache miss for key. Validating authorization...");
         let key_lock = {
@@ -69,10 +67,8 @@ impl AuthCache {
         if let Some(entry) = {
             let map = self.inner.read().expect("lock poisoned");
             map.get(key).cloned()
-        } {
-            if Instant::now() < entry.expires_at {
-                return Ok(entry.authorized);
-            }
+        } && Instant::now() < entry.expires_at {
+            return Ok(entry.authorized);
         }
 
         let decision = validator_fn().await?;
@@ -116,7 +112,7 @@ pub async fn validate_request(
     let bucket = bucket.to_string();
 
     let req = request
-        .into_iter()
+        .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect::<HashMap<String, String>>();
 

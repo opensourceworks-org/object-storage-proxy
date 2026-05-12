@@ -61,6 +61,12 @@ pub struct UrlTracker {
     pub counts: Arc<DashMap<String, usize>>,
 }
 
+impl Default for UrlTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UrlTracker {
     pub fn new() -> Self {
         UrlTracker {
@@ -191,6 +197,7 @@ impl ProxyServerConfig {
             server_name = "<osp⚡>".to_string(),
         )
     )]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cos_map: PyObject,
         hmac_keystore: Option<PyObject>,
@@ -338,7 +345,7 @@ impl ProxyHttp for MyProxy {
         };
 
         let port = bucket_config.clone()
-            .and_then(|config| Some(config.port))
+            .map(|config| config.port)
             .unwrap_or(443);
 
         let addr = (endpoint.clone(), port);
@@ -380,7 +387,7 @@ impl ProxyHttp for MyProxy {
     }
 
 
-    async fn request_filter(&self, mut session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
+    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
 
         // Tracking the request count for each URL
@@ -410,7 +417,7 @@ impl ProxyHttp for MyProxy {
 
 
             // session.respond_error_with_body(403, msg.into()).await?;
-            write_error_response_with_header(&mut session, StatusCode::FORBIDDEN, msg).await?;
+            write_error_response_with_header(session, StatusCode::FORBIDDEN, msg).await?;
             return Ok(true);
         }
 
@@ -489,13 +496,12 @@ impl ProxyHttp for MyProxy {
         let mut access_key: String = String::new();
 
         if auth_header.is_empty() {
-            if let Some(q) = session.req_header().uri.query() {
-                if q.contains("X-Amz-Credential") {
+            if let Some(q) = session.req_header().uri.query()
+                && q.contains("X-Amz-Credential") {
                     let (_, p) = parse_presigned_params(&format!("?{q}"))
                         .map_err(|_| pingora::Error::new_str("Failed to parse presigned params"))?;
                     access_key = p.access_key.clone();
                 }
-            }
         } else {
             access_key = parse_token_from_header(&auth_header)
             .map_err(|_| pingora::Error::new_str("Failed to parse access_key"))?
@@ -509,7 +515,7 @@ impl ProxyHttp for MyProxy {
                 .req_header()
                 .uri
                 .query()
-                .map_or(false, |q| q.contains("uploadId="));
+                .is_some_and(|q| q.contains("uploadId="));
 
 
             info!("CHECKING SIGNATURE");
@@ -546,7 +552,7 @@ impl ProxyHttp for MyProxy {
                                     Err(_) => {
                                         // no key → unauthorized
                                         write_error_response_with_header(
-                                            &mut session,
+                                            session,
                                             StatusCode::UNAUTHORIZED,
                                             "No key found for presigned URL".to_string(),
                                         ).await?;
@@ -557,7 +563,7 @@ impl ProxyHttp for MyProxy {
                             } else {
                                 // session.respond_error(401).await?;
                                 write_error_response_with_header(
-                                    &mut session,
+                                    session,
                                     StatusCode::UNAUTHORIZED,
                                     "No key found for presigned URL".to_string(),
                                 ).await?;
@@ -572,7 +578,7 @@ impl ProxyHttp for MyProxy {
                         debug!("got secret {} from keystore", sk);
                         debug!("RAW_PATH       = {}", &session.req_header().uri);
                         debug!("RAW_HOST_HDR   = {:?}", &session.req_header().headers.get("host"));
-                        let ok = match signature_is_valid_for_presigned(&session, &sk).await {
+                        let ok = match signature_is_valid_for_presigned(session, &sk).await {
                             Ok(b)  => b,
                             Err(e) => {
                                 error!("presigned-URL validation error: {e}");   // <-- keep the info
@@ -608,7 +614,7 @@ impl ProxyHttp for MyProxy {
                                     // no key → unauthorized
                                     // session.respond_error(401).await?;
                                     write_error_response_with_header(
-                                        &mut session,
+                                        session,
                                         StatusCode::UNAUTHORIZED,
                                         "No key found for request".to_string(),
                                     ).await?;
@@ -618,7 +624,7 @@ impl ProxyHttp for MyProxy {
                         } else {
                             // session.respond_error(401).await?;
                             write_error_response_with_header(
-                                &mut session,
+                                session,
                                 StatusCode::UNAUTHORIZED,
                                 "No key found for request".to_string(),
                             ).await?;
@@ -633,7 +639,7 @@ impl ProxyHttp for MyProxy {
                     info!("Checking signature");
                      let sig_ok = match signature_is_valid_for_request(
                          &auth_header,
-                         &session,
+                         session,
                          &secret_key.expect("key was just inserted"),
                      )
                      .await
@@ -653,7 +659,7 @@ impl ProxyHttp for MyProxy {
                      if !sig_ok {
                         //  session.respond_error(401).await?;
                          write_error_response_with_header(
-                             &mut session,
+                             session,
                              StatusCode::UNAUTHORIZED,
                              "Signature invalid".to_string(),
                          ).await?;
@@ -695,7 +701,7 @@ impl ProxyHttp for MyProxy {
             info!("Access denied for bucket: {}.  End of request.", bucket);
             // session.respond_error(401).await?;
             write_error_response_with_header(
-                &mut session,
+                session,
                 StatusCode::UNAUTHORIZED,
                 format!("Access denied for bucket: {}", bucket),
             ).await?;
@@ -754,8 +760,8 @@ impl ProxyHttp for MyProxy {
         ctx: &mut Self::CTX,
     ) -> Result<()> {
 
-        if let Some(presigned) = ctx.is_presigned {
-            if presigned {
+        if let Some(presigned) = ctx.is_presigned
+            && presigned {
                 debug!("upstream_request_filter::presigned");
                 let cleaned_q = upstream_request
                     .uri
@@ -776,9 +782,7 @@ impl ProxyHttp for MyProxy {
         
             upstream_request.set_uri(new_path_and_query.try_into()
                 .map_err(|_| pingora::Error::new_str("invalid URI after query rewrite"))?);
- 
-            }
-        };
+        }
 
         let _ = upstream_request.remove_header("accept-encoding");
 
@@ -1108,7 +1112,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     let local_hmac_map = if Python::with_gil(|py| run_args.hmac_keystore.is_none(py)) {
         HashMap::new()
     } else {
-        parse_hmac_list(py, &run_args.hmac_keystore).unwrap_or(HashMap::new())
+        parse_hmac_list(py, &run_args.hmac_keystore).unwrap_or_default()
     };
 
     debug!("HMAC keys: {:#?}", &local_hmac_map);

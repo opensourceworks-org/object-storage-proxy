@@ -83,6 +83,7 @@ where
 /// A new instance of `AwsSign`
 /// 
 impl<'a> AwsSign<'a, HashMap<String, String>> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<B: AsRef<[u8]> + ?Sized>(
         method: &'a str,
         url: &'a str,
@@ -233,7 +234,7 @@ where
     }
 
     pub fn canonical_request(&'a self) -> String {
-        let url: &str = self.url.path().into();
+        let url: &str = self.url.path();
         let payload_line = if let Some(ov) = &self.payload_override {
             ov.clone()
         } else if self.body == b"UNSIGNED-PAYLOAD" {
@@ -468,6 +469,7 @@ pub(crate) async fn sign_request(
 
 
 /// Core signature validation: compares provided vs computed
+#[allow(clippy::too_many_arguments)]
 async fn signature_is_valid_core(
     method: &str,
     provided_signature: &str,
@@ -494,7 +496,7 @@ async fn signature_is_valid_core(
         secret_key,
         service,
         body_bytes,
-        Some(&signed_headers),
+        Some(signed_headers),
     );
 
     // if payload_hash.starts_with("STREAMING-") {
@@ -706,11 +708,10 @@ pub async fn signature_is_valid_for_presigned(
     
     // copy any additional headers that appear in X-Amz-SignedHeaders (rare)
     for h in &["x-amz-date", "x-amz-content-sha256", "range", "x-amz-security-token"] {
-        if signed_headers.contains(&h.to_string()) {
-            if let Some(v) = session.req_header().headers.get(*h) {
+        if signed_headers.contains(&h.to_string())
+            && let Some(v) = session.req_header().headers.get(*h) {
                 signed_hdrs.insert(*h, v.clone());
             }
-        }
     }
 
 
@@ -743,7 +744,7 @@ pub async fn signature_is_valid_for_presigned(
 /// * `scope`       - e.g. `"20250501/eu-west-3/s3/aws4_request"`  
 /// * `ts`          - the `X-Amz-Date` you put in the header (`YYYYMMDDThhmmssZ`)  
 /// * `seed_sig`    - the `Signature=` value you computed for the
-///                   *headers* (the one that goes into `Authorization:`)
+///   *headers* (the one that goes into `Authorization:`)
 ///
 /// ```text
 /// ┌──── header chunk ────┐┌── data ─┐┌─ CRLF ─┐
