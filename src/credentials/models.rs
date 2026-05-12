@@ -56,4 +56,45 @@ mod tests {
             panic!("Expected fallback ApiKey variant");
         }
     }
+
+    #[test]
+    fn parse_apikey_alias() {
+        // "apikey" (no underscore) must also be recognised
+        let json = r#"{ "apikey": "MY_API_KEY" }"#;
+        if let BucketCredential::ApiKey(k) = BucketCredential::parse(json) {
+            assert_eq!(k, "MY_API_KEY");
+        } else {
+            panic!("Expected ApiKey variant for 'apikey' alias");
+        }
+    }
+
+    #[test]
+    fn parse_invalid_json_falls_back_to_api_key() {
+        let raw = "not-json-at-all";
+        if let BucketCredential::ApiKey(k) = BucketCredential::parse(raw) {
+            assert_eq!(k, raw);
+        } else {
+            panic!("Expected ApiKey fallback for non-JSON input");
+        }
+    }
+
+    #[test]
+    fn parse_json_missing_keys_falls_back_to_api_key() {
+        // Valid JSON but neither hmac nor api_key fields present
+        let raw = r#"{"foo": "bar"}"#;
+        if let BucketCredential::ApiKey(k) = BucketCredential::parse(raw) {
+            assert_eq!(k, raw);
+        } else {
+            panic!("Expected ApiKey fallback when JSON has no recognised keys");
+        }
+    }
+
+    #[test]
+    fn parse_empty_string_falls_back_to_api_key() {
+        if let BucketCredential::ApiKey(k) = BucketCredential::parse("") {
+            assert_eq!(k, "");
+        } else {
+            panic!("Expected ApiKey fallback for empty string");
+        }
+    }
 }

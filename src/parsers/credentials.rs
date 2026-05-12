@@ -152,6 +152,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_credential_scope_missing_prefix_fails() {
+        assert!(parse_credential_scope("no-credential-here").is_err());
+    }
+
+    #[test]
+    fn parse_token_from_header_empty_fails() {
+        assert!(parse_token_from_header("").is_err());
+    }
+
+    #[test]
+    fn parse_token_from_header_no_credential_fails() {
+        assert!(parse_token_from_header("AWS4-HMAC-SHA256 SignedHeaders=host").is_err());
+    }
+
+    #[test]
     fn test_parse_valid_scope() {
         let header = "Credential=AKIAEXAMPLE/20250425/us-west-2/s3/aws4_request, SignedHeaders=host;x-amz-date";
         let (rem, (region, service)) = parse_credential_scope(header).expect("parse failed");

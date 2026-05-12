@@ -163,3 +163,116 @@ pub(crate) fn parse_cos_map(
 
     Ok(map)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_item() -> CosMapItem {
+        CosMapItem {
+            host: "s3.example.com".into(),
+            port: 443,
+            region: Some("us-east-1".into()),
+            api_key: None,
+            access_key: None,
+            secret_key: None,
+            ttl: None,
+            tls: Some(true),
+            addressing_style: None,
+        }
+    }
+
+    #[test]
+    fn has_hmac_requires_both_keys() {
+        let mut item = base_item();
+        assert!(!item.has_hmac());
+
+        item.access_key = Some("AK".into());
+        assert!(!item.has_hmac(), "only access_key should not satisfy has_hmac");
+
+        item.secret_key = Some("SK".into());
+        assert!(item.has_hmac());
+    }
+
+    #[test]
+    fn has_api_key_reflects_presence() {
+        let mut item = base_item();
+        assert!(!item.has_api_key());
+        item.api_key = Some("my-api-key".into());
+        assert!(item.has_api_key());
+    }
+
+    #[tokio::test]
+    async fn ensure_credentials_noop_when_hmac_present() {
+        let mut item = base_item();
+        item.access_key = Some("AK".into());
+        item.secret_key = Some("SK".into());
+
+        // fetcher should NOT be called
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called2 = called.clone();
+        let fetcher = move |_bucket: String| {
+            let c = called2.clone();
+            async move {
+                c.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok::<String, Box<dyn std::error::Error + Send + Sync>>("unused".into())
+            }
+        };
+
+        item.ensure_credentials("my-bucket", Some(fetcher))
+            .await
+            .unwrap();
+        assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn ensure_credentials_noop_when_api_key_present() {
+        let mut item = base_item();
+        item.api_key = Some("apikey123".into());
+
+        item.ensure_credentials("my-bucket", None::<fn(String) -> std::future::Ready<Result<String, Box<dyn std::error::Error + Send + Sync>>>>)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ensure_credentials_fetches_hmac_when_missing() {
+        let mut item = base_item();
+        let creds = r#"{"access_key": "FETCHED_AK", "secret_key": "FETCHED_SK"}"#;
+        let creds_str = creds.to_string();
+        let fetcher = move |_bucket: String| {
+            let c = creds_str.clone();
+            async move { Ok::<String, Box<dyn std::error::Error + Send + Sync>>(c) }
+        };
+
+        item.ensure_credentials("my-bucket", Some(fetcher))
+            .await
+            .unwrap();
+
+        assert_eq!(item.access_key.as_deref(), Some("FETCHED_AK"));
+        assert_eq!(item.secret_key.as_deref(), Some("FETCHED_SK"));
+    }
+
+    #[tokio::test]
+    async fn ensure_credentials_fetches_api_key_when_missing() {
+        let mut item = base_item();
+        let fetcher = |_bucket: String| async move {
+            Ok::<String, Box<dyn std::error::Error + Send + Sync>>("my-fetched-api-key".into())
+        };
+
+        item.ensure_credentials("my-bucket", Some(fetcher))
+            .await
+            .unwrap();
+
+        assert_eq!(item.api_key.as_deref(), Some("my-fetched-api-key"));
+    }
+
+    #[tokio::test]
+    async fn ensure_credentials_errors_without_fetcher() {
+        let mut item = base_item();
+        let result = item
+            .ensure_credentials("my-bucket", None::<fn(String) -> std::future::Ready<Result<String, Box<dyn std::error::Error + Send + Sync>>>>)
+            .await;
+        assert!(result.is_err());
+    }
+}

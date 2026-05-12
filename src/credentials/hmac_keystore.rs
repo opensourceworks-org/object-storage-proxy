@@ -23,3 +23,30 @@ impl HmacKeyStore {
         &self.secret_key
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_stores_keys() {
+        let ks = HmacKeyStore::new("AK123".into(), "SK456".into());
+        assert_eq!(ks.get_access_key(), "AK123");
+        assert_eq!(ks.get_secret_key(), "SK456");
+    }
+
+    #[test]
+    fn default_is_empty_strings() {
+        let ks = HmacKeyStore::default();
+        assert_eq!(ks.get_access_key(), "");
+        assert_eq!(ks.get_secret_key(), "");
+    }
+
+    #[test]
+    fn clone_is_independent() {
+        let original = HmacKeyStore::new("AK".into(), "SK".into());
+        let cloned = original.clone();
+        assert_eq!(cloned.get_access_key(), original.get_access_key());
+        assert_eq!(cloned.get_secret_key(), original.get_secret_key());
+    }
+}
