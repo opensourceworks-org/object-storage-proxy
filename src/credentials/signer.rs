@@ -149,7 +149,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         //     .collect();
         
         debug!(url, "parsing presigned URL");
-        let url: Url = url.parse().unwrap();
+        let url: Url = url.parse().expect("invalid URL passed to AwsSign::new");
         // let headers: HashMap<String, String> = headers
         //     .iter()
         //     .filter_map(|(key, value)| {
@@ -259,7 +259,7 @@ where
         let canonical = self.canonical_request();
         let string_to_sign = string_to_sign(self.datetime, self.region, &canonical, self.service);
         let signing_key = signing_key(self.datetime, self.secret_key, self.region, self.service);
-        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &signing_key.unwrap());
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &signing_key.expect("signing key derivation failed"));
         let tag = ring::hmac::sign(&key, string_to_sign.as_bytes());
         let signature = hex::encode(tag.as_ref());
         let signed_headers = self.signed_header_string();
@@ -377,9 +377,12 @@ pub(crate) async fn sign_request(
     let datetime = chrono::Utc::now();
     let method = request.method.to_string();
     let url = request.uri.to_string();
-    let access_key = cos_map.access_key.as_ref().unwrap();
-    let secret_key = cos_map.secret_key.as_ref().unwrap();
-    let region = cos_map.region.as_ref().unwrap();
+    let access_key = cos_map.access_key.as_ref()
+        .ok_or_else(|| pingora::Error::new_str("bucket config missing access_key"))?;
+    let secret_key = cos_map.secret_key.as_ref()
+        .ok_or_else(|| pingora::Error::new_str("bucket config missing secret_key"))?;
+    let region = cos_map.region.as_ref()
+        .ok_or_else(|| pingora::Error::new_str("bucket config missing region"))?;
 
     request.insert_header(
         "X-Amz-Date",
@@ -536,7 +539,9 @@ pub async fn signature_is_valid_for_request(
 
     let method = session.req_header().method.to_string();
     // Parse date header
-    let dt_header = session.req_header().headers.get("x-amz-date").unwrap().to_str()?;
+    let dt_header = session.req_header().headers.get("x-amz-date")
+        .ok_or_else(|| pingora::Error::new_str("missing x-amz-date header"))?
+        .to_str()?;
     let datetime = NaiveDateTime::parse_from_str(dt_header, LONG_DATETIME)?.and_utc();
 
 
@@ -576,10 +581,10 @@ pub async fn signature_is_valid_for_request(
     let signed_headers_str = auth_header
         .split("SignedHeaders=")
         .nth(1)
-        .unwrap()
+        .ok_or_else(|| pingora::Error::new_str("missing SignedHeaders in Authorization"))?
         .split(',')
         .next()
-        .unwrap();
+        .ok_or_else(|| pingora::Error::new_str("malformed SignedHeaders value"))?;
 
     let signed_headers: Vec<String> = signed_headers_str.split(';').map(str::to_string).collect();
 
@@ -683,16 +688,18 @@ pub async fn signature_is_valid_for_presigned(
     // collect signed headers list
     let signed_headers = params
         .get("X-Amz-SignedHeaders")
-        .unwrap()
+        .ok_or_else(|| pingora::Error::new_str("missing X-Amz-SignedHeaders in presigned URL"))?
         .split(';')
         .map(str::to_string)
         .collect::<Vec<_>>();
 
     let mut signed_hdrs = HeaderMap::new();
 
+    let host = url.host_str()
+        .ok_or_else(|| pingora::Error::new_str("presigned URL has no host"))?;
     let host_header = match url.port_or_known_default() {
-        Some(443) | Some(80) | None => url.host_str().unwrap().to_owned(),
-        Some(p)                    => format!("{}:{}", url.host_str().unwrap(), p),
+        Some(443) | Some(80) | None => host.to_owned(),
+        Some(p)                    => format!("{}:{}", host, p),
     };
 
     signed_hdrs.insert("host", host_header.parse()?);
@@ -755,7 +762,9 @@ pub async fn wrap_streaming_body(
     secret_key: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. pull the COMPLETE body from the client
-    let body: Bytes = session.read_request_body().await.expect("Failed to read request body").unwrap();
+    let body: Bytes = session.read_request_body().await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?
+        .ok_or_else(|| Box::<dyn std::error::Error>::from("empty request body"))?;
 
     // 2. overwrite the x-amz-* headers so that we can sign UNSIGNED-PAYLOAD
     upstream_request.insert_header("x-amz-content-sha256", "UNSIGNED-PAYLOAD")?;

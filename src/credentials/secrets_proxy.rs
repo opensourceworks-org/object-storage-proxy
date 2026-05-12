@@ -30,7 +30,7 @@ impl SecretValue {
     pub fn is_expired(&self) -> bool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock before Unix epoch")
             .as_secs();
         now >= self.expiration - 300 // 5 minute buffer
     }
@@ -57,7 +57,7 @@ impl SecretsCache {
     pub fn insert(&self, key: String, value: String, expiration: u64) {
         let secret = SecretValue { value, expiration };
 
-        let mut map = self.inner.write().unwrap();
+        let mut map = self.inner.write().expect("lock poisoned");
         map.insert(key, secret);
     }
 
@@ -67,7 +67,7 @@ impl SecretsCache {
         Fut: std::future::Future<Output = Result<IamResponse, Box<dyn std::error::Error>>> + Send,
     {
         let maybe_secret = {
-            let map = self.inner.read().unwrap();
+            let map = self.inner.read().expect("lock poisoned");
             map.get(key).cloned()
         };
 
@@ -117,7 +117,7 @@ impl SecretsCache {
     }
 
     pub fn invalidate(&self, key: &str) {
-        let mut map = self.inner.write().unwrap();
+        let mut map = self.inner.write().expect("lock poisoned");
         map.remove(key);
     }
 }

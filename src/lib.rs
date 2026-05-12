@@ -311,7 +311,7 @@ impl ProxyHttp for MyProxy {
             return Err(pingora::Error::new_str("Failed to parse path"));
         }
 
-        let (_, (bucket, _)) = parse_path_result.unwrap();
+        let (_, (bucket, _)) = parse_path_result.expect("checked above");
 
         let hdr_bucket = bucket.to_owned();
 
@@ -428,7 +428,7 @@ impl ProxyHttp for MyProxy {
             error!("Failed to parse query: {:?}", parsed_query_result);
             return Err(pingora::Error::new_str("Failed to parse query"));
         }
-        let (rest, mut query_dict) = parsed_query_result.unwrap();
+        let (rest, mut query_dict) = parsed_query_result.expect("checked above");
         if rest.is_empty() {
             info!("Parsed query: {:#?}", query_dict);
         } else {
@@ -470,7 +470,7 @@ impl ProxyHttp for MyProxy {
             return Err(pingora::Error::new_str("Failed to parse path"));
         }
 
-        let (_, (bucket, _uri_path)) = parse_path_result.unwrap();
+        let (_, (bucket, _uri_path)) = parse_path_result.expect("checked above");
 
         let hdr_bucket = bucket.to_owned();
 
@@ -566,7 +566,9 @@ impl ProxyHttp for MyProxy {
      
                         }
                         debug!("now checking if the signature is valid for presigned...");
-                        let sk = ctx.hmac_keystore.read().await.get(&access_key).unwrap().clone();
+                        let sk = ctx.hmac_keystore.read().await.get(&access_key)
+                            .expect("key was just inserted")
+                            .clone();
                         debug!("got secret {} from keystore", sk);
                         debug!("RAW_PATH       = {}", &session.req_header().uri);
                         debug!("RAW_HOST_HDR   = {:?}", &session.req_header().headers.get("host"));
@@ -632,7 +634,7 @@ impl ProxyHttp for MyProxy {
                      let sig_ok = match signature_is_valid_for_request(
                          &auth_header,
                          &session,
-                         &secret_key.unwrap(),
+                         &secret_key.expect("key was just inserted"),
                      )
                      .await
                      {
@@ -772,7 +774,8 @@ impl ProxyHttp for MyProxy {
                 format!("{}?{}", upstream_request.uri.path(), cleaned_q)
             };
         
-            upstream_request.set_uri(new_path_and_query.try_into().unwrap());
+            upstream_request.set_uri(new_path_and_query.try_into()
+                .map_err(|_| pingora::Error::new_str("invalid URI after query rewrite"))?);
  
             }
         };
@@ -782,7 +785,8 @@ impl ProxyHttp for MyProxy {
         debug!("upstream_request_filter::start");
 
 
-        let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
+        let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path())
+            .map_err(|_| pingora::Error::new_str("failed to parse upstream request path"))?;
 
         debug!(my_updated_url, "parsed upstream path");
 
@@ -912,14 +916,11 @@ impl ProxyHttp for MyProxy {
                 debug!(streaming_header, "streaming upload detected");
 
                 
-                let access_key= bucket_config.as_ref().unwrap().access_key.as_ref().unwrap_or(&String::new()).to_string();
-                let secret_key = bucket_config.as_ref().unwrap()
-                    .secret_key
-                    .as_ref()
-                    .unwrap_or(&String::new())
-                    .to_string();
-
-                let region = bucket_config.as_ref().unwrap().region.as_ref().unwrap_or(&String::new()).to_string();
+                let cfg = bucket_config.as_ref()
+                    .ok_or_else(|| pingora::Error::new_str("no bucket config for streaming upload"))?;
+                let access_key = cfg.access_key.as_deref().unwrap_or_default().to_string();
+                let secret_key = cfg.secret_key.as_deref().unwrap_or_default().to_string();
+                let region = cfg.region.as_deref().unwrap_or_default().to_string();
 
                 // let decoded_len = upstream_request
                 //     .headers
@@ -973,7 +974,8 @@ impl ProxyHttp for MyProxy {
                 );                
             } else {
 
-                sign_request(upstream_request, bucket_config.as_ref().unwrap())
+                sign_request(upstream_request, bucket_config.as_ref()
+                    .ok_or_else(|| pingora::Error::new_str("no bucket config for signing"))?)
                     .await
                     .map_err(|e| {
                         error!("Failed to sign request for {}: {e}", hdr_bucket);
@@ -1111,10 +1113,10 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
 
     debug!("HMAC keys: {:#?}", &local_hmac_map);
 
-    let cosmap = Arc::new(RwLock::new(parse_cos_map(py, &run_args.cos_map).unwrap()));
+    let cosmap = Arc::new(RwLock::new(parse_cos_map(py, &run_args.cos_map).expect("failed to parse cos_map")));
     let hmac_keystore = Arc::new(RwLock::new(local_hmac_map));
 
-    let mut my_server = Server::new(None).unwrap();
+    let mut my_server = Server::new(None).expect("failed to create pingora server");
     my_server.bootstrap();
 
     let validator = run_args.validator.as_ref().map(|v| v.clone_ref(py));

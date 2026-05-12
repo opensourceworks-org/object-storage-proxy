@@ -67,7 +67,7 @@ impl AuthCache {
         let _guard = key_lock.lock().await;
 
         if let Some(entry) = {
-            let map = self.inner.read().unwrap();
+            let map = self.inner.read().expect("lock poisoned");
             map.get(key).cloned()
         } {
             if Instant::now() < entry.expires_at {
@@ -78,7 +78,7 @@ impl AuthCache {
         let decision = validator_fn().await?;
 
         {
-            let mut map = self.inner.write().unwrap();
+            let mut map = self.inner.write().expect("lock poisoned");
             map.insert(
                 key.to_string(),
                 AuthEntry {
@@ -96,12 +96,12 @@ impl AuthCache {
             authorized,
             expires_at: Instant::now() + ttl,
         };
-        let mut map = self.inner.write().unwrap();
+        let mut map = self.inner.write().expect("lock poisoned");
         map.insert(key, entry);
     }
 
     pub fn invalidate(&self, key: &str) {
-        let mut map = self.inner.write().unwrap();
+        let mut map = self.inner.write().expect("lock poisoned");
         map.remove(key);
     }
 }
@@ -123,17 +123,14 @@ pub async fn validate_request(
     debug!("request details sent to Python callable: {:?}", &req);
 
     let takes_request = Python::with_gil(|py| {
-        let sig = callable_accepts_request(py, &callback);
-        if sig.is_err() {
-            return Err(format!("Invalid callable signature: {:?}", sig));
-        }
-        Ok(sig.unwrap())
+        callable_accepts_request(py, &callback)
+            .map_err(|e| format!("Invalid callable signature: {:?}", e))
     });
 
     if takes_request.is_err() {
         return Err(format!("Invalid callable signature: {:?}", takes_request));
     }
-    let takes_request = takes_request.unwrap();
+    let takes_request = takes_request.expect("checked above");
 
     debug!("Python callable can take request: {:?}", &takes_request);
 

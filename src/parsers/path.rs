@@ -16,7 +16,7 @@ pub(crate) fn parse_path(input: &str) -> IResult<&str, (&str, &str)> {
         "/"
     } else {
         // recover the slash before `rest`
-        &input[input.find(rest).unwrap() - 1..]
+        &input[input.find(rest).expect("rest is a substring of input") - 1..]
     };
 
     Ok(("", (bucket, rest_path)))
