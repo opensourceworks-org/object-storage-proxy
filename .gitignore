@@ -1,4 +1,6 @@
 /target
+dist/
+target/wheels/
 .ibm_cos_creds
 .Idea/
 .env

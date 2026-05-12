@@ -2,6 +2,13 @@
 name = "object-storage-proxy"
 version = "0.4.3"
 edition = "2024"
+description = "A fast in-process reverse proxy for AWS S3 and IBM COS with a Python interface for auth and credential management."
+license = "MIT"
+homepage = "https://osp.flexworks.eu"
+repository = "https://github.com/opensourceworks-org/object-storage-proxy"
+readme = "README.md"
+keywords = ["s3", "proxy", "object-storage", "ibm-cos", "pingora"]
+categories = ["network-programming", "web-programming::http-server"]
 
 [dependencies]
 async-trait = "0.1.88"

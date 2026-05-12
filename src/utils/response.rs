@@ -1,6 +1,6 @@
 use http::StatusCode;
 use pingora::http::ResponseHeader;
-use pingora::proxy::{ProxyHttp, Session};
+use pingora::proxy::Session;
 use pingora::Result;
 use bytes::Bytes;
 

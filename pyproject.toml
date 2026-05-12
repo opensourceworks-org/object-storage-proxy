@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 
 requires-python = ">=3.10"
 classifiers = [
-  "License :: Other/Proprietary License",
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Rust",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",

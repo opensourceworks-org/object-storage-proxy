@@ -23,7 +23,6 @@
         pythonEnv = pkgs.python312.withPackages (ps: with ps; [
           pip
           python-dotenv
-          maturin
           pytest
           requests
         ]);
