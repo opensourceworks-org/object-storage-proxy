@@ -19,10 +19,10 @@
 
 ## Tests
 
-- [ ] 12. Add Rust unit tests for lib.rs — UrlTracker, ProxyServerConfig::default(), ProxyServerConfig::new(), __repr__.
-- [ ] 13. Add a minimal pytest test that instantiates ProxyServerConfig and checks repr() without a live backend.
-- [ ] 14. Wire Python tests into the CI workflow (currently only cargo test runs).
-- [ ] 15. Split CI into `test:rust` and `test:python` jobs so failures are easy to attribute.
+- [x] 12. Add Rust unit tests for lib.rs — UrlTracker, ProxyServerConfig::default(), ProxyServerConfig::new(), __repr__.
+- [x] 13. Add a minimal pytest test that instantiates ProxyServerConfig and checks repr() without a live backend.
+- [x] 14. Wire Python tests into the CI workflow (currently only cargo test runs).
+- [x] 15. Split CI into `test:rust` and `test:python` jobs so failures are easy to attribute.
 
 ## Repository hygiene
 

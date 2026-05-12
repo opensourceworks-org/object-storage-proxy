@@ -390,12 +390,22 @@ impl ProxyHttp for MyProxy {
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
 
-        // Tracking the request count for each URL
+        // Tracking the request count for presigned URLs only.
+        // Regular (re-signed) requests must not be counted — aws-cli issues multiple
+        // parallel range-GET requests for the same object (multipart download), so
+        // counting every request would exhaust the limit almost immediately.
         let url = session.req_header().uri.to_string();
         let path = session.req_header().uri.path().to_string();
-        self.tracker.track(&url);
+        let is_presigned_url = session
+            .req_header()
+            .uri
+            .query()
+            .is_some_and(|q| q.contains("X-Amz-Signature"));
+        if is_presigned_url {
+            self.tracker.track(&url);
+        }
         let tracked_count = self.tracker.get(&url).unwrap_or(0);
-        if tracked_count > self.max_presign_url_usage_attempts.unwrap_or(3) {
+        if is_presigned_url && tracked_count > self.max_presign_url_usage_attempts.unwrap_or(3) {
             warn!(url, tracked_count, max = self.max_presign_url_usage_attempts.unwrap_or(3), "presigned URL usage limit exceeded, denying");
             let msg = format!(
                 "URL ({}) has been tracked too many times: {} (max={}).  Access Denied!",
@@ -1246,4 +1256,53 @@ fn object_storage_proxy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(disable_request_counting, m)?)?;
     m.add_function(wrap_pyfunction!(get_request_count, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── UrlTracker ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn url_tracker_new_is_empty() {
+        let tracker = UrlTracker::new();
+        assert!(tracker.get_all().is_empty());
+    }
+
+    #[test]
+    fn url_tracker_default_equals_new() {
+        let t1 = UrlTracker::new();
+        let t2 = UrlTracker::default();
+        assert_eq!(t1.get_all().len(), t2.get_all().len());
+    }
+
+    #[test]
+    fn url_tracker_track_increments_count() {
+        let tracker = UrlTracker::new();
+        assert_eq!(tracker.get("http://example.com/key"), None);
+        tracker.track("http://example.com/key");
+        assert_eq!(tracker.get("http://example.com/key"), Some(1));
+        tracker.track("http://example.com/key");
+        assert_eq!(tracker.get("http://example.com/key"), Some(2));
+    }
+
+    #[test]
+    fn url_tracker_get_returns_none_for_unknown_url() {
+        let tracker = UrlTracker::new();
+        assert_eq!(tracker.get("http://example.com/missing"), None);
+    }
+
+    #[test]
+    fn url_tracker_get_all_returns_all_tracked_urls() {
+        let tracker = UrlTracker::new();
+        tracker.track("http://example.com/a");
+        tracker.track("http://example.com/b");
+        tracker.track("http://example.com/a");
+        let mut all = tracker.get_all();
+        all.sort_by_key(|(k, _)| k.clone());
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0], ("http://example.com/a".to_string(), 2));
+        assert_eq!(all[1], ("http://example.com/b".to_string(), 1));
+    }
 }
