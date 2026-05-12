@@ -1397,7 +1397,10 @@ mod tests {
         let dt = chrono::DateTime::parse_from_rfc3339("2013-05-24T00:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
-        assert_eq!(scope_string(&dt, "us-east-1", "s3"), "20130524/us-east-1/s3/aws4_request");
+        assert_eq!(
+            scope_string(&dt, "us-east-1", "s3"),
+            "20130524/us-east-1/s3/aws4_request"
+        );
     }
 
     #[test]
@@ -1420,8 +1423,13 @@ mod tests {
         let dt = chrono::DateTime::parse_from_rfc3339("2013-05-24T00:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
-        let key = signing_key(&dt, "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "us-east-1", "s3")
-            .unwrap();
+        let key = signing_key(
+            &dt,
+            "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+            "us-east-1",
+            "s3",
+        )
+        .unwrap();
         assert_eq!(key.len(), 32);
     }
 
@@ -1433,7 +1441,18 @@ mod tests {
         headers.insert("host", "bucket.s3.us-east-1.amazonaws.com".parse().unwrap());
         headers.insert("x-amz-date", "20130524T000000Z".parse().unwrap());
 
-        let signer = AwsSign::new("GET", url, &datetime, &headers, "us-east-1", "AK", "SK", "s3", "", None);
+        let signer = AwsSign::new(
+            "GET",
+            url,
+            &datetime,
+            &headers,
+            "us-east-1",
+            "AK",
+            "SK",
+            "s3",
+            "",
+            None,
+        );
 
         let signed = signer.signed_header_string();
         // sorted alphabetically
@@ -1452,9 +1471,24 @@ mod tests {
         let url = "https://bucket.s3.us-east-1.amazonaws.com/key";
         let mut headers = HeaderMap::new();
         headers.insert("host", "bucket.s3.us-east-1.amazonaws.com".parse().unwrap());
-        let signer = AwsSign::new("GET", url, &dt, &headers, "us-east-1", "AKID", "SECRET", "s3", "", None);
+        let signer = AwsSign::new(
+            "GET",
+            url,
+            &dt,
+            &headers,
+            "us-east-1",
+            "AKID",
+            "SECRET",
+            "s3",
+            "",
+            None,
+        );
         let auth = signer.sign();
-        assert!(auth.starts_with("AWS4-HMAC-SHA256 Credential=AKID/20130524/us-east-1/s3/aws4_request,"));
+        assert!(
+            auth.starts_with(
+                "AWS4-HMAC-SHA256 Credential=AKID/20130524/us-east-1/s3/aws4_request,"
+            )
+        );
         assert!(auth.contains("SignedHeaders="));
         assert!(auth.contains("Signature="));
         // Signature must be a 64-char hex string
@@ -1468,7 +1502,18 @@ mod tests {
         let dt = chrono::Utc::now();
         let url = "https://bucket.s3.us-east-1.amazonaws.com/key";
         let headers = HeaderMap::new();
-        let mut signer = AwsSign::new("PUT", url, &dt, &headers, "us-east-1", "AK", "SK", "s3", "UNSIGNED-PAYLOAD", None);
+        let mut signer = AwsSign::new(
+            "PUT",
+            url,
+            &dt,
+            &headers,
+            "us-east-1",
+            "AK",
+            "SK",
+            "s3",
+            "UNSIGNED-PAYLOAD",
+            None,
+        );
         signer.set_payload_override("UNSIGNED-PAYLOAD".into());
         assert!(signer.canonical_request().ends_with("UNSIGNED-PAYLOAD"));
     }
@@ -1484,7 +1529,9 @@ mod tests {
         let mut cs = ChunkSigner::new(key, scope, ts, "seed-sig-hex".into());
 
         let payload: &[u8] = b"hello world";
-        let frame = cs.sign_chunk(bytes::Bytes::copy_from_slice(payload)).unwrap();
+        let frame = cs
+            .sign_chunk(bytes::Bytes::copy_from_slice(payload))
+            .unwrap();
         // Frame must start with hex chunk-size;chunk-ext\r\n
         let frame_str = std::str::from_utf8(&frame).unwrap();
         assert!(frame_str.contains("chunk-signature="));

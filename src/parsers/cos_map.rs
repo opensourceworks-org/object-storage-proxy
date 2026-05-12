@@ -188,7 +188,10 @@ mod tests {
         assert!(!item.has_hmac());
 
         item.access_key = Some("AK".into());
-        assert!(!item.has_hmac(), "only access_key should not satisfy has_hmac");
+        assert!(
+            !item.has_hmac(),
+            "only access_key should not satisfy has_hmac"
+        );
 
         item.secret_key = Some("SK".into());
         assert!(item.has_hmac());
@@ -230,9 +233,17 @@ mod tests {
         let mut item = base_item();
         item.api_key = Some("apikey123".into());
 
-        item.ensure_credentials("my-bucket", None::<fn(String) -> std::future::Ready<Result<String, Box<dyn std::error::Error + Send + Sync>>>>)
-            .await
-            .unwrap();
+        item.ensure_credentials(
+            "my-bucket",
+            None::<
+                fn(
+                    String,
+                )
+                    -> std::future::Ready<Result<String, Box<dyn std::error::Error + Send + Sync>>>,
+            >,
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -271,7 +282,16 @@ mod tests {
     async fn ensure_credentials_errors_without_fetcher() {
         let mut item = base_item();
         let result = item
-            .ensure_credentials("my-bucket", None::<fn(String) -> std::future::Ready<Result<String, Box<dyn std::error::Error + Send + Sync>>>>)
+            .ensure_credentials(
+                "my-bucket",
+                None::<
+                    fn(
+                        String,
+                    ) -> std::future::Ready<
+                        Result<String, Box<dyn std::error::Error + Send + Sync>>,
+                    >,
+                >,
+            )
             .await;
         assert!(result.is_err());
     }
