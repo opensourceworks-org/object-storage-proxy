@@ -6,7 +6,7 @@ pub(crate) fn callable_accepts_request(py: Python<'_>, callable: &PyObject) -> P
     let inspect = py.import("inspect")?;
     let signature = inspect.call_method1("signature", (callable.to_owned(),))?;
     let parameters = signature.getattr("parameters")?;
-    dbg!(&parameters);
+    debug!(parameters = ?parameters, "inspecting callable signature");
     let parameters = parameters.call_method0("items")?;
 
     

@@ -3,6 +3,7 @@ use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use pingora::Result;
 use bytes::Bytes;
+use tracing::debug;
 
 const DEFAULT_SERVER_NAME: &str = "<osp⚡>";
 
@@ -27,6 +28,6 @@ pub async fn write_error_response_with_header(
         .await?;
 
     session.respond_error_with_body(status_code.as_u16(), msg.clone().into()).await?;
-    println!("{} {} responded with {}", "0".repeat(80), &msg, status_code);
+    debug!(status = status_code.as_u16(), msg, "wrote error response");
     Ok(true)
 }

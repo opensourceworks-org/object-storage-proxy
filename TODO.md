@@ -12,7 +12,7 @@
 
 ## Code quality
 
-- [ ] 8. Replace `dbg!` and `println!` with `tracing` calls in production code paths (lib.rs, signer.rs, response.rs, functions.rs).
+- [x] 8. Replace `dbg!` and `println!` with `tracing` calls in production code paths (lib.rs, signer.rs, response.rs, functions.rs).
 - [ ] 9. Reduce bare `.unwrap()` — 80 in non-test code; use `?` or `.expect("descriptive message")` in critical paths.
 - [x] 10. Fix unused-import compiler warnings — run `cargo fix --lib -p object-storage-proxy`. Zero warnings remain.
 - [ ] 11. Run `cargo clippy -- -D warnings` and resolve all findings before publishing.

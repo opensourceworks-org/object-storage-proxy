@@ -148,7 +148,7 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
         //     })
         //     .collect();
         
-        dbg!("{:#?}", &url);
+        debug!(url, "parsing presigned URL");
         let url: Url = url.parse().unwrap();
         // let headers: HashMap<String, String> = headers
         //     .iter()
@@ -500,7 +500,7 @@ async fn signature_is_valid_core(
     // }
 
     if let Some(ov) = payload_override {
-        dbg!("payload_override: {}", &ov);
+        debug!(payload_override = ov, "applying payload hash override");
         signer.set_payload_override(ov);
     }
 

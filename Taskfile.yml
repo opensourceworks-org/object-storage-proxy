@@ -1,8 +1,8 @@
 version: "3"
 
 vars:
-  PYTHON: uv run python
-  MATURIN: uv run maturin
+  PYTHON: uv run --no-sync python
+  MATURIN: uv run --no-sync maturin
 
 tasks:
   # ── setup ──────────────────────────────────────────────────────────────────
@@ -17,17 +17,17 @@ tasks:
   build:
     desc: "Compile the Rust extension and install it into .venv (dev build)"
     cmds:
-      - "{{.MATURIN}} develop"
+      - uv run maturin develop
 
   build:release:
     desc: "Compile with release optimisations and install into .venv"
     cmds:
-      - "{{.MATURIN}} develop --release"
+      - uv run maturin develop --release
 
   wheel:
     desc: "Build a debug wheel into target/wheels/"
     cmds:
-      - "{{.MATURIN}} build"
+      - uv run maturin build
 
   wheel:release:
     desc: "Build a release wheel into target/wheels/"

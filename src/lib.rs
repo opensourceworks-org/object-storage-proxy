@@ -30,7 +30,7 @@ use std::fmt::Debug;
 
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::ChronoLocal;
 
@@ -71,7 +71,7 @@ impl UrlTracker {
     pub fn track(&self, url: &str) {
         let mut entry = self.counts.entry(url.to_string()).or_insert(0);
         *entry += 1;
-        println!("{} Tracking URL: {} - Count: {}", "03".repeat(50), url, *entry);
+        debug!(url, count = *entry, "tracking presigned URL");
     }
 
     pub fn get(&self, url: &str) -> Option<usize> {
@@ -347,11 +347,10 @@ impl ProxyHttp for MyProxy {
             .and_then(|config| config.tls)
             .unwrap_or(true);
         
-        dbg!("is_tls: {}", endpoint_is_tls);
-        dbg!("endpoint: {}", &endpoint);
+        debug!(endpoint_is_tls, endpoint, "resolved upstream peer");
 
         let mut peer = Box::new(HttpPeer::new(addr, endpoint_is_tls, endpoint.clone()));
-        dbg!("peer: {:#?}", &peer);
+        debug!(?peer, "upstream peer created");
 
         // todo: make ths configurable
 
@@ -390,8 +389,7 @@ impl ProxyHttp for MyProxy {
         self.tracker.track(&url);
         let tracked_count = self.tracker.get(&url).unwrap_or(0);
         if tracked_count > self.max_presign_url_usage_attempts.unwrap_or(3) {
-            println!("URL ({}) has been tracked too many times: {} (max={}).  Access Denied!",
-            url, tracked_count, self.max_presign_url_usage_attempts.unwrap_or(3));
+            warn!(url, tracked_count, max = self.max_presign_url_usage_attempts.unwrap_or(3), "presigned URL usage limit exceeded, denying");
             let msg = format!(
                 "URL ({}) has been tracked too many times: {} (max={}).  Access Denied!",
                 path,
@@ -416,9 +414,8 @@ impl ProxyHttp for MyProxy {
             return Ok(true);
         }
 
-        dbg!(&session.request_summary());
-
-        dbg!(&session.req_header().uri);
+        debug!(summary = ?session.request_summary(), "request summary");
+        debug!(uri = ?session.req_header().uri, "incoming request URI");
 
         let request_query = session.req_header().uri.query().unwrap_or("");
         info!("request path: {}", session.req_header().uri.path());
@@ -787,9 +784,7 @@ impl ProxyHttp for MyProxy {
 
         let (_, (bucket, my_updated_url)) = parse_path(upstream_request.uri.path()).unwrap();
 
-        dbg!(&my_updated_url);
-
-
+        debug!(my_updated_url, "parsed upstream path");
 
         let hdr_bucket = bucket.to_string();
 
@@ -814,7 +809,7 @@ impl ProxyHttp for MyProxy {
             _ => {
 
                 let u_url = format!("/{}{}", bucket, my_updated_url);
-                dbg!("u_url: {}", &u_url);
+                debug!(u_url, "using path addressing style");
                 &u_url.clone()
             },
         };
@@ -914,11 +909,7 @@ impl ProxyHttp for MyProxy {
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or_default();
 
-                dbg!("---".repeat(2000));
-                debug!("streaming_header: {}", &streaming_header);
-
-                dbg!("STREAMING UPLOAD");
-                dbg!("*".repeat(2000));
+                debug!(streaming_header, "streaming upload detected");
 
                 
                 let access_key= bucket_config.as_ref().unwrap().access_key.as_ref().unwrap_or(&String::new()).to_string();
@@ -940,8 +931,8 @@ impl ProxyHttp for MyProxy {
                 // remove the original streaming headers we cannot forward.
                 // upstream_request.remove_header("x-amz-decoded-content-length");
                 
-                //  stream‑chunk.
-                dbg!(&upstream_request.headers);
+                //  stream-chunk.
+                debug!(headers = ?upstream_request.headers, "upstream request headers before streaming rewrite");
                 upstream_request.remove_header("content-length");
                 upstream_request.remove_header("content-md5");
                 upstream_request.insert_header("transfer-encoding", "chunked")?;
