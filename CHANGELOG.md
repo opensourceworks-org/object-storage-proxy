@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Spark streaming
 
 
+### Chores
+- Release v0.6.0
+
+
 ### Documentation
 - Update README
 
@@ -453,3 +457,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apply cargo fmt
 
 - Apply cargo fmt
+
+
+
