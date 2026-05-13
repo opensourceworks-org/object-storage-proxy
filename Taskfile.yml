@@ -3,6 +3,9 @@ version: "3"
 vars:
   PYTHON: uv run --no-sync python
   MATURIN: uv run --no-sync maturin
+  # On NixOS, maturin's hard-link install can silently leave the old .so in
+  # site-packages. SO_CP copies the freshly-built .so to the correct location.
+  PY_SO_DST: uv run --no-sync python -c "import sysconfig,os; print(os.path.join(sysconfig.get_path('platlib'),'object_storage_proxy','object_storage_proxy'+sysconfig.get_config_var('EXT_SUFFIX')))"
 
 tasks:
   # ── setup ──────────────────────────────────────────────────────────────────
@@ -18,11 +21,13 @@ tasks:
     desc: "Compile the Rust extension and install it into .venv (dev build)"
     cmds:
       - uv run maturin develop
+      - cp target/debug/libobject_storage_proxy.so $({{.PY_SO_DST}})
 
   build:release:
     desc: "Compile with release optimisations and install into .venv"
     cmds:
       - uv run maturin develop --release
+      - cp target/release/libobject_storage_proxy.so $({{.PY_SO_DST}})
 
   wheel:
     desc: "Build a debug wheel into target/wheels/"
