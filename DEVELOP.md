@@ -28,7 +28,11 @@
 | `task integration:run` | automated integration test: up → test → down |
 | `task integration:up` | start Garage + bootstrap + OSP proxy |
 | `task integration:down` | stop proxy + stop Garage |
-| `task integration:test` | run pytest suite against the running environment |
+| `task integration:test` | run pytest suite (excludes Spark) |
+| `task integration:test:spark` | run only the Spark tests (`-m spark`) |
+| `task integration:test:all` | run full suite including Spark tests |
+| `task integration:test:spark` | run only the Spark tests (`-m spark`) |
+| `task integration:test:all` | run full suite including Spark tests |
 | `task hooks:install` | install (or re-install) the pre-commit git hooks |
 | `task hooks:run` | run all pre-commit checks against every file |
 | `task hooks:update` | bump pre-commit hook revisions to latest |
@@ -367,6 +371,9 @@ task integration:garage:destroy  # also wipe Garage data volumes
 | `integration:server:logs` | Tail the proxy log |
 | `integration:test` | Run pytest suite against the running environment |
 | `integration:test:fast` | Same, with `-x` (stop on first failure) |
+| `integration:test:spark` | Run only the Spark tests (`-m spark`) |
+| `integration:test:spark:fast` | Same, with `-x` (stop on first failure) |
+| `integration:test:all` | Run full suite including Spark tests |
 
 ### What the tests cover
 
@@ -376,6 +383,95 @@ task integration:garage:destroy  # also wipe Garage data volumes
 | `tests/test_multipart.py` | CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts |
 | `tests/test_presigned.py` | Presigned GET/PUT, expiry enforcement, repeated-use limiting |
 | `tests/test_aws_cli.py` | `aws s3 ls`, `cp`, `sync`, `rm` via subprocess |
+| `tests/test_spark.py` | Spark s3a read/write: Parquet, JSON, overwrite, empty DataFrame, large DataFrame (10 000 rows) |
+
+### Spark tests
+
+The Spark test suite (`tests/test_spark.py`) exercises PySpark's `s3a://` connector against OSP.
+Tests are marked `spark` and skipped by default unless explicitly requested, because PySpark startup takes 20–40 s on first run (Ivy downloads `hadoop-aws`).
+
+#### Additional prerequisites
+
+- Java 11 or 17 on `PATH` (`java -version`)
+- PySpark + `pyspark` Python package (installed by `task integration:setup`)
+
+#### Run Spark tests only
+
+```bash
+task integration:test:spark          # all 5 Spark tests
+task integration:test:spark:fast     # stop on first failure
+```
+
+Or via pytest directly:
+
+```bash
+cd integration/test_server
+uv run pytest -m spark tests/test_spark.py -v
+```
+
+#### Run everything (including Spark)
+
+```bash
+task integration:test:all
+```
+
+#### Spark smoke-test (standalone)
+
+`spark.py` doubles as a runnable smoke-test that writes two rows and reads them back:
+
+```bash
+cd integration/test_server
+uv run python spark.py
+```
+
+Expected output:
+
+```
++---+-----+
+| id|  msg|
++---+-----+
+|  1|hello|
+|  2|world|
++---+-----+
+✅  Smoke test passed — 2 rows round-tripped via s3a://test-bucket/spark-smoke-test/
+```
+
+#### How Spark writes to S3A (and why it matters for OSP)
+
+Spark's `FileOutputCommitter` (algorithm v2) writes data files directly to the final destination using a two-phase flow:
+
+1. **Streaming PUT** — the file body is sent with `content-encoding: aws-chunked`, `transfer-encoding: chunked`, and `x-amz-content-sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD`.  Each chunk is independently signed with a chain of HMAC-SHA256 signatures.
+2. **CopyObject** — when committing, Spark renames the `_temporary/…` staging file to its final path by issuing a `CopyObject` request that includes both `x-amz-copy-source` and `x-amz-copy-source-if-match` in `SignedHeaders`.
+
+OSP handles both cases transparently:
+
+- The **streaming PUT** body is decoded from the client's aws-chunked framing, and the raw payload chunks are re-signed with the Garage backend credentials before forwarding.
+- The **CopyObject** canonical request is built by sorting headers by key name only (not by `key:value` string), matching the AWS SigV4 specification.
+
+#### SparkSession configuration
+
+`integration/test_server/spark.py` configures the session via `build_spark_session()`:
+
+```python
+from spark import build_spark_session
+
+spark = build_spark_session(
+    access_key="...",
+    secret_key="...",
+    endpoint="http://localhost:6190",   # OSP proxy
+    region="garage",
+)
+```
+
+Key Hadoop S3A settings applied:
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `fs.s3a.impl` | `S3AFileSystem` | Use the S3A connector |
+| `fs.s3a.aws.credentials.provider` | `SimpleAWSCredentialsProvider` | Static key/secret — no IAM |
+| `fs.s3a.path.style.access` | `true` | OSP requires path-style addressing |
+| `fs.s3a.connection.ssl.enabled` | `false` | Plain HTTP for local testing |
+| `spark.jars.packages` | `org.apache.hadoop:hadoop-aws:3.5.0` | Pulled via Ivy on first run |
 
 ### Ports used
 

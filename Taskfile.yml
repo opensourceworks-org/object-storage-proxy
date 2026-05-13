@@ -256,16 +256,34 @@ tasks:
       - task: integration:garage:down
 
   integration:test:
-    desc: "Run integration tests against the running environment"
+    desc: "Run integration tests against the running environment (excludes Spark)"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/ -v -m 'not spark'
+
+  integration:test:fast:
+    desc: "Run integration tests, stop on first failure (excludes Spark)"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/ -v -x -m 'not spark'
+
+  integration:test:spark:
+    desc: "Run only the Spark s3a tests"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/test_spark.py -v -m spark
+
+  integration:test:spark:fast:
+    desc: "Run Spark tests, stop on first failure"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/test_spark.py -v -m spark -x
+
+  integration:test:all:
+    desc: "Run full test suite including Spark tests"
     dir: integration/test_server
     cmds:
       - uv run pytest tests/ -v
-
-  integration:test:fast:
-    desc: "Run integration tests, stop on first failure"
-    dir: integration/test_server
-    cmds:
-      - uv run pytest tests/ -v -x
 
   integration:run:
     desc: "Automated: up → test → down (tears down even on failure)"

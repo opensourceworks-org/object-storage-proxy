@@ -296,7 +296,7 @@ These backlog items are currently not yet implemented:
 
 - [ ] Pass path and method to Python callbacks; cache by (token, bucket, path, method)
 - [ ] Expose pingora server and service configuration directly to Python
-- [ ] Spark streaming write support
+- [x] Spark streaming write support
 - [ ] AWS CLI checksum workaround ([aws/aws-cli#9214](https://github.com/aws/aws-cli/issues/9214))
 - [ ] Allow same bucket name on different providers
 - [ ] Pluggable distributed cache
