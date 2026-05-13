@@ -1,6 +1,6 @@
 [package]
 name = "object-storage-proxy"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 description = "A fast in-process reverse proxy for AWS S3 and IBM COS with a Python interface for auth and credential management."
 license = "MIT"
@@ -12,13 +12,7 @@ categories = ["network-programming", "web-programming::http-server"]
 
 [dependencies]
 async-trait = "0.1.89"
-prometheus = "0.14.0"
-clap = { version = "4.6.1", features = ["derive"] }
-log = "0.4.29"
-env_logger = "0.11.10"
-# pingora = { version = "0.4.0", features = ["proxy", "openssl"] }
 pingora = { version = "0.8.0", features = ["proxy", "rustls"] }
-futures = "0.3.32"
 http = "1.4.0"
 serde_json = "1.0.149"
 reqwest = { version = "0.13.3", features = ["json", "rustls", "form"] }
@@ -26,9 +20,6 @@ tokio = { version = "1.52.3", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 dotenv = "0.15.0"
 nom = "8.0.0"
-wiremock = "0.6.5"
-
-# openssl = { version = "0.10.72", features = ["vendored"] }
 
 pyo3 = { version = "0.25.1", features = [
   "extension-module",
@@ -54,18 +45,12 @@ hex = "0.4.3"
 regex = "1.12.3"
 percent-encoding = "2.3.2"
 bytes = "1.11.1"
-async-stream = "0.3.6"
-tokio-util = "0.7.18"
-futures-core = "0.3.32"
-pin-project-lite = "0.2.17"
 base64 = "0.22.1"
 urlencoding = "2.1.3"
 dashmap = "6.1.0"
-# sha2 = "0.10.9"
-# hmac-sha256 = "1.1.8"
 
-# [build-dependencies]
-# openssl-sys = { version = "0.9", features = ["vendored"] }
+[dev-dependencies]
+wiremock = "0.6.5"
 
 [lib]
 name = "object_storage_proxy"

@@ -8,6 +8,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::{debug, error};
 
+/// A cached IAM bearer token together with its UNIX expiry timestamp.
 #[derive(Clone, Debug)]
 pub struct SecretValue {
     value: String,
@@ -15,18 +16,22 @@ pub struct SecretValue {
 }
 
 impl SecretValue {
+    /// Create a new secret with `value` that expires at the given UNIX timestamp.
     pub fn new(value: String, expiration: u64) -> Self {
         SecretValue { value, expiration }
     }
 
+    /// Return the raw token string.
     pub fn get_value(&self) -> &str {
         &self.value
     }
 
+    /// Return the UNIX expiry timestamp.
     pub fn get_expiration(&self) -> u64 {
         self.expiration
     }
 
+    /// Returns `true` if the token has expired (with a 5-minute safety buffer).
     pub fn is_expired(&self) -> bool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -36,6 +41,11 @@ impl SecretValue {
     }
 }
 
+/// A thread-safe, in-memory cache for IBM IAM bearer tokens.
+///
+/// Tokens are automatically refreshed when they are within 5 minutes of
+/// expiry.  The cache is keyed by bucket name and shared across all Pingora
+/// worker threads via an [`Arc`].
 #[derive(Clone, Debug)]
 pub struct SecretsCache {
     inner: Arc<RwLock<HashMap<String, SecretValue>>>,
@@ -48,12 +58,14 @@ impl Default for SecretsCache {
 }
 
 impl SecretsCache {
+    /// Create a new, empty secrets cache.
     pub fn new() -> Self {
         SecretsCache {
             inner: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
+    /// Insert a token `value` for `key` that expires at the given UNIX timestamp.
     pub fn insert(&self, key: String, value: String, expiration: u64) {
         let secret = SecretValue { value, expiration };
 
@@ -61,6 +73,8 @@ impl SecretsCache {
         map.insert(key, secret);
     }
 
+    /// Return a valid token for `key`, fetching a new one via `bearer_fetcher` if
+    /// the cache is empty or the stored token is near expiry.
     pub async fn get<F, Fut>(&self, key: &str, bearer_fetcher: F) -> Option<String>
     where
         F: Fn() -> Fut + Send + 'static,
@@ -116,19 +130,28 @@ impl SecretsCache {
         }
     }
 
+    /// Remove the cached token for `key`, forcing a fresh fetch on the next call to [`get`](Self::get).
     pub fn invalidate(&self, key: &str) {
         let mut map = self.inner.write().expect("lock poisoned");
         map.remove(key);
     }
 }
 
+/// Deserialized response from the IBM IAM `/identity/token` endpoint.
 #[derive(Deserialize, Debug)]
 pub struct IamResponse {
+    /// The short-lived OAuth2 access token.
     pub access_token: String,
+    /// Token lifetime in seconds (typically 3600).
     pub expires_in: u32,
+    /// Absolute UNIX expiry timestamp.
     pub expiration: u64,
 }
 
+/// Exchange an IBM COS API key for an IAM bearer token.
+///
+/// Posts to `https://iam.cloud.ibm.com/identity/token` and returns the
+/// deserialized [`IamResponse`] on success.
 pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn std::error::Error>> {
     debug!("Fetching bearer token for the API key");
     let client = Client::new();
@@ -157,6 +180,11 @@ pub(crate) async fn get_bearer(api_key: String) -> Result<IamResponse, Box<dyn s
     }
 }
 
+/// Call the Python `bucket_creds_fetcher` callback and return the raw
+/// credential string it produces.
+///
+/// The callback receives `(token, bucket)` as positional arguments and must
+/// return a `str`.
 pub(crate) async fn get_credential_for_bucket(
     callback: &PyObject,
     bucket: String,

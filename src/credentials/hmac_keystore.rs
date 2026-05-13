@@ -1,5 +1,9 @@
 use pyo3::pyclass;
 
+/// An in-memory store for a single HMAC key-pair (access key + secret key).
+///
+/// Exposed to Python as a `pyclass` so callers can pass pre-loaded credentials
+/// when constructing a [`ProxyServerConfig`](crate::ProxyServerConfig).
 #[pyclass]
 #[derive(Debug, Clone, Default)]
 pub struct HmacKeyStore {
@@ -8,6 +12,7 @@ pub struct HmacKeyStore {
 }
 
 impl HmacKeyStore {
+    /// Create a new key store with the given access and secret keys.
     pub fn new(access_key: String, secret_key: String) -> Self {
         HmacKeyStore {
             access_key,
@@ -15,10 +20,12 @@ impl HmacKeyStore {
         }
     }
 
+    /// Return the stored AWS access key ID.
     pub fn get_access_key(&self) -> &str {
         &self.access_key
     }
 
+    /// Return the stored AWS secret access key.
     pub fn get_secret_key(&self) -> &str {
         &self.secret_key
     }

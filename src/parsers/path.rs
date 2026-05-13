@@ -10,6 +10,16 @@ use nom::{
     sequence::{preceded, separated_pair},
 };
 
+/// Parse an S3-style request path into `(bucket, object_path)`.
+///
+/// The expected format is `/<bucket>[/<object_path>]`.
+///
+/// * `/my-bucket` → `("my-bucket", "/")`
+/// * `/my-bucket/prefix/key` → `("my-bucket", "/prefix/key")`
+///
+/// # Errors
+///
+/// Returns a nom error if the input is empty or does not start with `/`.
 pub(crate) fn parse_path(input: &str) -> IResult<&str, (&str, &str)> {
     let (_remaining, (_, bucket, rest)) = (
         char('/'),
@@ -49,6 +59,13 @@ fn take_until_either<'a>(end: &'static str) -> impl FnMut(&'a str) -> IResult<&'
     }
 }
 
+/// Parse a URL-encoded query string into a key/value map.
+///
+/// Keys and values are percent-decoded.  An empty input yields an empty map.
+///
+/// # Errors
+///
+/// Returns a nom error if any key/value pair cannot be parsed.
 pub fn parse_query(input: &str) -> IResult<&str, HashMap<String, String>> {
     let (rest, pairs) = (separated_list0(char('&'), key_value_pair)).parse(input)?;
     let map = pairs.into_iter().collect::<HashMap<_, _>>();

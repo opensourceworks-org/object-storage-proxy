@@ -7,6 +7,14 @@ use tracing::debug;
 
 const DEFAULT_SERVER_NAME: &str = "<osp⚡>";
 
+/// Write a plain-text HTTP error response to the downstream client.
+///
+/// Sets `Content-Type: text/plain`, `X-Content-Type-Options: nosniff`, and a
+/// custom `Server` header before sending `msg` as the response body.
+///
+/// Always returns `Ok(true)` so callers can do
+/// `return write_error_response_with_header(…).await?;`
+/// from within a `request_filter` implementation.
 pub async fn write_error_response_with_header(
     session: &mut Session,
     status_code: StatusCode,

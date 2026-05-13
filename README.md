@@ -4,11 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust edition](https://img.shields.io/badge/Rust-2024-orange.svg)](https://doc.rust-lang.org/edition-guide/rust-2024/)
 
-# object-storage-proxy
+# <osp⚡> object-storage-proxy
 
 A fast, in-process reverse proxy for AWS S3 and IBM Cloud Object Storage, built on Cloudflare's [pingora](https://github.com/cloudflare/pingora). It exposes a Python interface so you can plug in your own credential fetching, request signing, and authorization logic without touching the Rust core.
 
-> **Note:** This project is under active development. APIs may change before 1.0.
+> **Note:** This project is under active development. APIs are likely to change before 1.0.
 
 - [Documentation](https://osp.flexworks.eu)
 - [Changelog](CHANGELOG.md)
@@ -52,7 +52,7 @@ cd object-storage-proxy
 uv run maturin develop --release
 ```
 
-See [BUILD.md](BUILD.md) for full build instructions including Nix and Taskfile usage.
+See [DEVELOP.md](DEVELOP.md) for full develop/build instructions including Nix and Taskfile usage.
 
 ## Quick start
 

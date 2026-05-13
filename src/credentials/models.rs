@@ -1,12 +1,27 @@
+/// A parsed credential for an S3/COS bucket.
+///
+/// Credentials are returned by the optional `bucket_creds_fetcher` Python
+/// callback in one of several formats:
+///
+/// * A JSON object with `access_key` and `secret_key` → [`BucketCredential::Hmac`]
+/// * A JSON object with `api_key` or `apikey` → [`BucketCredential::ApiKey`]
+/// * Any other plain string → treated as a raw API key ([`BucketCredential::ApiKey`])
 pub enum BucketCredential {
+    /// AWS-style HMAC credentials (SigV4).
     Hmac {
         access_key: String,
         secret_key: String,
     },
+    /// IBM COS API key (exchanged for an IAM bearer token before forwarding).
     ApiKey(String),
 }
 
 impl BucketCredential {
+    /// Parse a raw credential string into a [`BucketCredential`].
+    ///
+    /// Tries JSON first.  Recognises `access_key`/`secret_key` (HMAC) and
+    /// `api_key`/`apikey` (IBM API key).  Falls back to treating the entire
+    /// input as a plain API-key string.
     pub fn parse(raw: &str) -> Self {
         if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(raw) {
             if let (Some(ak), Some(sk)) = (json_val.get("access_key"), json_val.get("secret_key")) {

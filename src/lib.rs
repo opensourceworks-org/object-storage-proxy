@@ -1,3 +1,39 @@
+//! # object-storage-proxy
+//!
+//! A fast, in-process reverse proxy for **AWS S3**, **IBM Cloud Object Storage (COS)** and other S3-compatible object storage services,
+//! with a Python interface for custom authentication and credential management.
+//!
+//! The proxy is built on top of [Pingora](https://github.com/cloudflare/pingora) and exposed
+//! to Python via [PyO3](https://pyo3.rs). It handles:
+//!
+//! * **AWS Signature Version 4** re-signing — incoming requests are validated and
+//!   then re-signed with backend credentials before being forwarded.
+//! * **Presigned URL enforcement** — optional per-URL usage limits prevent replay abuse.
+//! * **IBM IAM bearer-token exchange** — API keys are automatically exchanged for
+//!   short-lived IAM tokens and cached.
+//! * **Pluggable Python callbacks** — supply an async validator and/or a credential
+//!   fetcher callable from Python to integrate with any auth backend.
+//!
+//! ## Quick start (Python)
+//!
+//! ```python
+//! from object_storage_proxy import ProxyServerConfig, start_server
+//!
+//! config = ProxyServerConfig(
+//!     cos_map={
+//!         "my-bucket": {
+//!             "host": "s3.eu-west-3.amazonaws.com",
+//!             "port": 443,
+//!             "access_key": "AKIAIOSFODNN7EXAMPLE",
+//!             "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+//!             "region": "eu-west-3",
+//!         }
+//!     },
+//!     http_port=6190,
+//! )
+//! start_server(config)
+//! ```
+
 #![warn(clippy::all)]
 use async_trait::async_trait;
 use bytes::BytesMut;
@@ -46,6 +82,7 @@ use credentials::{
 };
 
 pub mod utils;
+use utils::banner::print_banner;
 use utils::response::write_error_response_with_header;
 use utils::validator::{AuthCache, validate_request};
 
@@ -53,8 +90,18 @@ static REQ_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static REQ_COUNTER_ENABLED: AtomicBool = AtomicBool::new(false);
 const DEFAULT_SERVER_NAME: &str = "<osp⚡>";
 
+/// Thread-safe hit counter for presigned URLs.
+///
+/// Tracks how many times each presigned URL has been used so that a configurable
+/// maximum can be enforced.  Regular (re-signed) requests are **not** tracked —
+/// the aws-cli issues parallel range-GET sub-requests for the same object, which
+/// would exhaust a small limit instantly.
+///
+/// Internally backed by a [`DashMap`] so that concurrent access from multiple
+/// Pingora worker threads never requires a global lock.
 #[derive(Clone)]
 pub struct UrlTracker {
+    /// Per-URL hit counters.
     pub counts: Arc<DashMap<String, usize>>,
 }
 
@@ -65,22 +112,26 @@ impl Default for UrlTracker {
 }
 
 impl UrlTracker {
+    /// Create a new, empty tracker.
     pub fn new() -> Self {
         UrlTracker {
             counts: Arc::new(DashMap::new()),
         }
     }
 
+    /// Increment the hit counter for `url` by one.
     pub fn track(&self, url: &str) {
         let mut entry = self.counts.entry(url.to_string()).or_insert(0);
         *entry += 1;
         debug!(url, count = *entry, "tracking presigned URL");
     }
 
+    /// Return the current hit count for `url`, or `None` if it has never been tracked.
     pub fn get(&self, url: &str) -> Option<usize> {
         self.counts.get(url).map(|v| *v)
     }
 
+    /// Return a snapshot of all tracked URLs and their counts.
     pub fn get_all(&self) -> Vec<(String, usize)> {
         self.counts
             .iter()
@@ -238,6 +289,11 @@ impl ProxyServerConfig {
     }
 }
 
+/// The core Pingora proxy handler.
+///
+/// One instance is created per server and shared (via [`Arc`]) across all worker
+/// threads.  It implements [`ProxyHttp`] and drives the full request lifecycle:
+/// signature validation → authorization → credential injection → upstream routing.
 pub struct MyProxy {
     cos_endpoint: String,
     cos_mapping: Arc<RwLock<HashMap<String, CosMapItem>>>,
@@ -255,6 +311,10 @@ pub struct MyProxy {
     server_name: String,
 }
 
+/// Per-request context threaded through the Pingora middleware chain.
+///
+/// A fresh `MyCtx` is created by [`MyProxy::new_ctx`] for every incoming
+/// connection and is discarded when the request completes.
 pub struct MyCtx {
     cos_mapping: Arc<RwLock<HashMap<String, CosMapItem>>>,
     hmac_keystore: Arc<RwLock<HashMap<String, String>>>,
@@ -1112,6 +1172,14 @@ impl ProxyHttp for MyProxy {
     }
 }
 
+/// Initialise the global [`tracing`] subscriber.
+///
+/// Configures a human-readable formatter with RFC 3339 timestamps.  The log
+/// level is controlled by the `RUST_LOG` environment variable (e.g.
+/// `RUST_LOG=object_storage_proxy=debug`).
+///
+/// This is called automatically by [`run_server`] and should not normally be
+/// invoked by application code.
 pub fn init_tracing() {
     tracing_subscriber::fmt()
         .with_timer(ChronoLocal::rfc_3339())
@@ -1119,7 +1187,20 @@ pub fn init_tracing() {
         .init();
 }
 
+/// Build and run the Pingora proxy server.
+///
+/// This is the Rust entry-point called from [`start_server`].  It:
+/// 1. Initialises tracing.
+/// 2. Parses the COS map and HMAC keystore from the Python objects in `run_args`.
+/// 3. Creates the Pingora [`Server`], attaches HTTP and/or HTTPS listeners, and
+///    enters the run-forever loop (blocking the calling thread).
+///
+/// # Panics
+///
+/// Panics if `run_args.cos_map` cannot be parsed, or if the TLS certificate /
+/// key paths are missing when `https_port` is set.
 pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
+    print_banner();
     init_tracing();
 
     if run_args.http_port.is_none() && run_args.https_port.is_none() {
@@ -1250,16 +1331,22 @@ pub fn start_server(py: Python, run_args: &ProxyServerConfig) -> PyResult<()> {
     Ok(())
 }
 
+/// Enable the global request counter (disabled by default).
+///
+/// Once enabled every request proxied increments an atomic counter that can be
+/// read with [`get_request_count`].  Useful for testing and load-measurement.
 #[pyfunction]
 fn enable_request_counting() {
     REQ_COUNTER_ENABLED.store(true, Ordering::Relaxed);
 }
 
+/// Disable the global request counter.
 #[pyfunction]
 fn disable_request_counting() {
     REQ_COUNTER_ENABLED.store(false, Ordering::Relaxed);
 }
 
+/// Return the total number of proxied requests since counting was enabled.
 #[pyfunction]
 fn get_request_count() -> PyResult<usize> {
     Ok(REQ_COUNTER.load(Ordering::Relaxed))

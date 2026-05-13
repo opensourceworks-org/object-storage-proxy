@@ -16,6 +16,14 @@ struct AuthEntry {
     expires_at: Instant,
 }
 
+/// A time-bounded, per-request-key cache for authorization decisions.
+///
+/// Wraps arbitrary async validator functions so that the (potentially
+/// expensive) Python callback is only invoked once per `(access_key, bucket,
+/// query)` tuple within the configured TTL window.
+///
+/// Concurrent cache misses for the same key are serialized via a per-key
+/// [`Mutex`] to avoid thundering-herd stampedes.
 #[derive(Clone, Debug)]
 pub struct AuthCache {
     inner: Arc<RwLock<HashMap<String, AuthEntry>>>,
@@ -89,6 +97,7 @@ impl AuthCache {
         Ok(decision)
     }
 
+    /// Pre-populate the cache with a known decision for `key`.
     pub fn insert(&self, key: String, authorized: bool, ttl: Duration) {
         let entry = AuthEntry {
             authorized,
@@ -98,12 +107,22 @@ impl AuthCache {
         map.insert(key, entry);
     }
 
+    /// Evict the cached entry for `key`, forcing re-validation on the next request.
     pub fn invalidate(&self, key: &str) {
         let mut map = self.inner.write().expect("lock poisoned");
         map.remove(key);
     }
 }
 
+/// Invoke the Python validator callback for a single request.
+///
+/// Inspects the callable's signature at runtime (via Python's `inspect` module)
+/// to determine whether it accepts a third `request: dict` argument.  The call
+/// is dispatched on a [`tokio::task::spawn_blocking`] thread so that the Python
+/// GIL does not block the async runtime.
+///
+/// Returns `Ok(true)` if the callback approves the request, `Ok(false)` if it
+/// denies it, or `Err(String)` on any Python exception.
 pub async fn validate_request(
     token: &str,
     bucket: &str,

@@ -15,6 +15,14 @@ fn miss(i: &str) -> nom::Err<Error<&str>> {
     nom::Err::Error(make_error(i, ErrorKind::Tag))
 }
 
+/// Extract the AWS access key ID from an `Authorization` header value.
+///
+/// Expects the standard `AWS4-HMAC-SHA256 Credential=<ACCESS_KEY>/…` format.
+/// Returns the access key as a borrowed slice of the input.
+///
+/// # Errors
+///
+/// Returns a nom parse error if the header does not start with the expected prefix.
 pub fn parse_token_from_header(header: &str) -> IResult<&str, &str> {
     let (_, token) =
         (preceded(tag("AWS4-HMAC-SHA256 Credential="), take_until("/"))).parse(header)?;
@@ -22,6 +30,18 @@ pub fn parse_token_from_header(header: &str) -> IResult<&str, &str> {
     Ok(("", token))
 }
 
+/// Extract the `(region, service)` pair from a `Credential=…` scope string.
+///
+/// The credential scope has the form:
+/// `<ACCESS_KEY>/<DATE>/<REGION>/<SERVICE>/aws4_request`
+///
+/// Works whether the input starts directly at `Credential=` or has other text
+/// before it (e.g. a full `Authorization:` header value).
+///
+/// # Errors
+///
+/// Returns a nom parse error if `Credential=` is absent or the scope does not
+/// contain the mandatory `/aws4_request` trailer.
 pub fn parse_credential_scope(input: &str) -> IResult<&str, (&str, &str)> {
     let (input, _) = take_until("Credential=")(input)?;
     let (remaining, (_, _, _, _, _, region, _, service, _)) = (
@@ -39,16 +59,28 @@ pub fn parse_credential_scope(input: &str) -> IResult<&str, (&str, &str)> {
     Ok((remaining, (region, service)))
 }
 
+/// Structured representation of the query parameters in an AWS presigned URL.
+///
+/// Produced by [`parse_presigned_params`].
 #[derive(Debug, PartialEq)]
 pub struct PresignedParams {
+    /// Signing algorithm, e.g. `"AWS4-HMAC-SHA256"`.
     pub algorithm: String,
+    /// AWS access key ID extracted from `X-Amz-Credential`.
     pub access_key: String,
+    /// Short date (`YYYYMMDD`) extracted from `X-Amz-Credential`.
     pub credential_date: String,
+    /// AWS region extracted from `X-Amz-Credential`.
     pub region: String,
+    /// AWS service code extracted from `X-Amz-Credential`.
     pub service: String,
+    /// Full ISO 8601 timestamp from `X-Amz-Date`.
     pub amz_date: String,
+    /// Validity window in seconds from `X-Amz-Expires`.
     pub expires: String,
+    /// Semicolon-separated list of signed headers.
     pub signed_headers: String,
+    /// Hex-encoded request signature.
     pub signature: String,
 }
 
@@ -82,7 +114,19 @@ fn query_pairs(input: &str) -> IResult<&str, Vec<(&str, &str)>> {
     .parse(input)
 }
 
-/// Top-level parser
+/// Parse all AWS presigned URL query parameters into a [`PresignedParams`] struct.
+///
+/// `input` must start with a `?` (or be a bare query string without a leading
+/// `?` — in that case the parser expects a full URL-like input and will attempt
+/// to locate the `?` separator).
+///
+/// All `X-Amz-*` values are percent-decoded before being stored.
+///
+/// # Errors
+///
+/// Returns a nom error if any mandatory field (`X-Amz-Algorithm`,
+/// `X-Amz-Credential`, `X-Amz-Date`, `X-Amz-Expires`, `X-Amz-SignedHeaders`,
+/// `X-Amz-Signature`) is absent.
 pub fn parse_presigned_params(input: &str) -> IResult<&str, PresignedParams> {
     let (rest, pairs) = query_pairs(input)?;
     // build a little map

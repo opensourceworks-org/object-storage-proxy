@@ -20,13 +20,13 @@ tasks:
   build:
     desc: "Compile the Rust extension and install it into .venv (dev build)"
     cmds:
-      - uv run maturin develop
+      - cargo build
       - cp target/debug/libobject_storage_proxy.so $({{.PY_SO_DST}})
 
   build:release:
     desc: "Compile with release optimisations and install into .venv"
     cmds:
-      - uv run maturin develop --release
+      - cargo build --release
       - cp target/release/libobject_storage_proxy.so $({{.PY_SO_DST}})
 
   wheel:

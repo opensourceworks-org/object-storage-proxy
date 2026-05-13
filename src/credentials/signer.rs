@@ -1,3 +1,14 @@
+//! AWS Signature Version 4 request signing and verification.
+//!
+//! Provides:
+//! * [`AwsSign`] — low-level SigV4 signing primitive (adapted from
+//!   [aws-sign-v4](https://github.com/psnszsn/aws-sign-v4)).
+//! * `sign_request` — sign an outgoing Pingora [`RequestHeader`] in-place.
+//! * [`signature_is_valid_for_request`] — verify a standard `Authorization` header.
+//! * [`signature_is_valid_for_presigned`] — verify presigned URL query parameters.
+//! * [`ChunkSigner`] / [`StreamingState`] — per-chunk signing for
+//!   `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` uploads.
+
 pub(crate) use chrono::{DateTime, NaiveDateTime, Utc};
 use http::header::HeaderMap;
 use pingora::{http::RequestHeader, proxy::Session};
@@ -22,6 +33,11 @@ const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
 // AwsSign copied and modified from https://github.com/psnszsn/aws-sign-v4
 
+/// Low-level AWS Signature Version 4 signing primitive.
+///
+/// Holds all inputs needed to produce the canonical request, string-to-sign,
+/// and final `Authorization` header value.  Construct via [`AwsSign::new`] and
+/// then call [`AwsSign::sign`] to obtain the header value.
 pub struct AwsSign<'a, T: 'a>
 where
     &'a T: std::iter::IntoIterator<Item = (&'a String, &'a String)>,
@@ -214,10 +230,18 @@ where
     /// with the actual payload hash
     /// this is used for the `UNSIGNED-PAYLOAD` case
     /// and for the `payload_override` case
+    /// Override the payload hash used in the canonical request.
+    ///
+    /// Use `"UNSIGNED-PAYLOAD"` for presigned URLs or streaming uploads where
+    /// the body hash is not computed up front.
     pub fn set_payload_override(&mut self, h: String) {
         self.payload_override = Some(h);
     }
 
+    /// Return the canonicalized header string for inclusion in the canonical request.
+    ///
+    /// Headers are sorted lexicographically and each entry is formatted as
+    /// `lowercase-name:trimmed-value\n`.
     pub fn canonical_header_string(&'a self) -> String {
         let mut keyvalues = self
             .headers
@@ -228,6 +252,7 @@ where
         keyvalues.join("\n")
     }
 
+    /// Return the semicolon-separated list of signed header names (lowercase, sorted).
     pub fn signed_header_string(&'a self) -> String {
         let mut keys = self
             .headers
@@ -238,6 +263,9 @@ where
         keys.join(";")
     }
 
+    /// Build the canonical request string as defined in the AWS SigV4 spec.
+    ///
+    /// Format: `METHOD\nURI\nQUERY\nHEADERS\nSIGNED_HEADERS\nPAYLOAD_HASH`
     pub fn canonical_request(&'a self) -> String {
         let url: &str = self.url.path();
         let payload_line = if let Some(ov) = &self.payload_override {
@@ -261,6 +289,10 @@ where
             payload = payload_line,
         )
     }
+    /// Compute and return the complete `Authorization` header value.
+    ///
+    /// The returned string can be set directly on the outgoing request with
+    /// `request.insert_header("authorization", sign_result)`.
     pub fn sign(&'a self) -> String {
         let canonical = self.canonical_request();
         let string_to_sign = string_to_sign(self.datetime, self.region, &canonical, self.service);
@@ -315,6 +347,7 @@ pub fn canonical_query_string(uri: &Url) -> String {
     keyvalues.join("&")
 }
 
+/// Build the credential scope string: `YYYYMMDD/<region>/<service>/aws4_request`.
 pub fn scope_string(datetime: &DateTime<Utc>, region: &str, service: &str) -> String {
     format!(
         "{date}/{region}/{service}/aws4_request",
@@ -324,6 +357,9 @@ pub fn scope_string(datetime: &DateTime<Utc>, region: &str, service: &str) -> St
     )
 }
 
+/// Build the string-to-sign for AWS SigV4.
+///
+/// Format: `AWS4-HMAC-SHA256\n<ISO8601>\n<scope>\n<canonical_request_hash>`
 pub fn string_to_sign(
     datetime: &DateTime<Utc>,
     region: &str,
@@ -339,6 +375,9 @@ pub fn string_to_sign(
     )
 }
 
+/// Derive the SigV4 signing key.
+///
+/// Computes `HMAC(HMAC(HMAC(HMAC("AWS4" + secret, date), region), service), "aws4_request")`.
 pub fn signing_key(
     datetime: &DateTime<Utc>,
     secret_key: &str,
@@ -819,7 +858,11 @@ pub async fn wrap_streaming_body(
 
 const EMPTY_HASH: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-/// Handles running signature state for AWS-chunked uploads
+/// Stateful per-chunk signer for `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` uploads.
+///
+/// Each call to [`sign_chunk`](ChunkSigner::sign_chunk) produces the
+/// `chunk-signature` trailer required by AWS chunked encoding and advances
+/// the internal HMAC chain for the next chunk.
 pub struct ChunkSigner {
     signing_key: Vec<u8>,
     scope: String,
@@ -830,6 +873,8 @@ pub struct ChunkSigner {
 impl ChunkSigner {
     /// create a new signer.  
     /// *`seed_signature`* is the **signature you put in the `Authorization` header**
+    /// Create a new [`ChunkSigner`] from the seed values established during
+    /// the initial header signing step.
     pub fn new(signing_key: Vec<u8>, scope: String, ts: String, seed_signature: String) -> Self {
         Self {
             signing_key,
@@ -874,6 +919,7 @@ impl ChunkSigner {
     }
 
     /// Final 0-length chunk (must be sent after the body)
+    /// Produce the zero-length terminal chunk that signals end-of-stream.
     pub fn final_chunk(&mut self) -> Bytes {
         // sign an empty payload chunk (same steps, len = 0)
         let string_to_sign = format!(
@@ -887,6 +933,10 @@ impl ChunkSigner {
     }
 }
 
+/// Re-sign an upstream request header for a `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` upload.
+///
+/// Updates the `Authorization`, `x-amz-date`, and `x-amz-content-sha256` headers
+/// in-place.  Returns the seed signature that must be passed to [`StreamingState::new`].
 pub fn resign_streaming_request(
     req: &mut RequestHeader,
     region: &str,
@@ -1071,6 +1121,11 @@ pub fn resign_streaming_request(
 // }
 
 #[derive(Debug)]
+/// Runtime state for an in-progress streaming upload.
+///
+/// Stored in [`MyCtx::stream_state`](crate::MyCtx) and consumed by
+/// [`MyProxy::request_body_filter`](crate::MyProxy) to sign each body chunk
+/// as it flows through the proxy.
 pub struct StreamingState {
     region: String,
     _access_key: String,
@@ -1081,6 +1136,8 @@ pub struct StreamingState {
 }
 
 impl StreamingState {
+    /// Create a new [`StreamingState`] from the seed values produced by
+    /// [`resign_streaming_request`].
     pub fn new(
         region: String,
         access_key: String,
@@ -1099,6 +1156,7 @@ impl StreamingState {
         }
     }
 
+    /// Sign a body chunk and return the framed AWS-chunked bytes.
     pub fn sign_chunk(&mut self, payload: &[u8]) -> io::Result<Bytes> {
         let sig = compute_chunk_signature(
             payload,
@@ -1111,6 +1169,7 @@ impl StreamingState {
         Ok(build_chunk_frame(payload, &sig))
     }
 
+    /// Produce the terminal zero-length chunk that signals end-of-stream.
     pub fn final_chunk(&mut self) -> io::Result<Bytes> {
         let sig = compute_chunk_signature(
             &[],
