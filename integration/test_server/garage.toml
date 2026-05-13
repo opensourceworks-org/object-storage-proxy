@@ -1,0 +1,24 @@
+metadata_dir = "/var/lib/garage/meta"
+data_dir     = "/var/lib/garage/data"
+db_engine    = "lmdb"
+
+replication_factor = 1
+
+# A hex-encoded 32-byte secret shared by all nodes in the cluster.
+# Single-node dev setup — value is arbitrary but must be present.
+rpc_secret = "4a8c41a4818e0f4a5f02c9c22f6eba7b9c7fc2f8c87d2e3b1a0f9e8d7c6b5a41"
+
+rpc_bind_addr   = "0.0.0.0:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region    = "garage"
+api_bind_addr = "0.0.0.0:3900"
+# Allow path-style requests (bucket in URL path, not hostname)
+root_domain  = ".s3.garage.localhost"
+
+[admin]
+api_bind_addr = "0.0.0.0:3903"
+# Bearer token required for all admin API calls.
+# Keep this in sync with bootstrap.py ADMIN_TOKEN.
+admin_token = "osp-integration-admin-token"

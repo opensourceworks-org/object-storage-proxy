@@ -720,10 +720,22 @@ impl ProxyHttp for MyProxy {
                             "RAW_HOST_HDR   = {:?}",
                             &session.req_header().headers.get("host")
                         );
-                        let ok = match signature_is_valid_for_presigned(session, &sk).await {
+                        let presigned_result = signature_is_valid_for_presigned(session, &sk)
+                            .await
+                            .map_err(|e| e.to_string());
+                        let ok = match presigned_result {
                             Ok(b) => b,
-                            Err(e) => {
-                                error!("presigned-URL validation error: {e}"); // <-- keep the info
+                            Err(msg) => {
+                                error!("presigned-URL validation error: {msg}");
+                                if msg.contains("expired") {
+                                    write_error_response_with_header(
+                                        session,
+                                        StatusCode::FORBIDDEN,
+                                        format!("Presigned URL has expired: {}", session.req_header().uri.path()),
+                                    )
+                                    .await?;
+                                    return Ok(true);
+                                }
                                 return Err(pingora::Error::new_str("Failed to check signature"));
                             }
                         };
@@ -1016,6 +1028,7 @@ impl ProxyHttp for MyProxy {
         let allowed = [
             "host",
             "content-length",
+            "content-type",
             "x-amz-date",
             "x-amz-content-sha256",
             "x-amz-security-token",
@@ -1025,12 +1038,15 @@ impl ProxyHttp for MyProxy {
             "x-amz-decoded-content-length",
             "x-amz-trailer",
             "x-amz-sdk-checksum-algorithm",
+            // CopyObject headers
+            "x-amz-copy-source",
+            "x-amz-metadata-directive",
+            "x-amz-copy-source-if-match",
+            "x-amz-copy-source-if-none-match",
+            "x-amz-copy-source-if-modified-since",
+            "x-amz-copy-source-if-unmodified-since",
             "range",
             "expect",
-            // "content-encoding",
-            // "range",
-            // "trailer",
-            // "x-amz-trailer",
         ];
 
         let to_check: Vec<String> = upstream_request
@@ -1040,7 +1056,9 @@ impl ProxyHttp for MyProxy {
             .collect();
 
         for name in to_check {
-            let keep = allowed.contains(&name.as_str()) || name.starts_with("x-amz-checksum-");
+            let keep = allowed.contains(&name.as_str())
+                || name.starts_with("x-amz-checksum-")
+                || name.starts_with("x-amz-meta-");
             if !keep {
                 let _ = upstream_request.remove_header(&name);
             }

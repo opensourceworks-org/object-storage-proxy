@@ -1,0 +1,23 @@
+[project]
+name = "osp-integration-tests"
+version = "0.1.0"
+description = "Integration tests for object-storage-proxy against a local Garage S3 cluster"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.35",
+    "botocore>=1.35",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+]
+
+[tool.pytest.ini_options]
+timeout = 30
+addopts = "-v --tb=short"
+testpaths = ["tests"]
+
+[tool.uv]
+# Keep this project's venv independent from the root workspace venv.
+# The proxy server (server.py) is intentionally run with the root venv
+# where object_storage_proxy is installed.

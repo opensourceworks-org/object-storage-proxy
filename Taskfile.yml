@@ -78,6 +78,133 @@ tasks:
       - task: test:rust
       - task: test:integration
 
+  # ── integration environment ────────────────────────────────────────────────
+  # Lifecycle is intentionally split so you can keep Garage running for
+  # manual dev/testing while restarting just the proxy (or vice-versa).
+  #
+  # Quick reference:
+  #   task integration:up           # full stack (garage + bootstrap + proxy)
+  #   task integration:down         # tear everything down
+  #   task integration:test         # run tests against whatever is running
+  #   task integration:run          # automated: up → test → down
+  #
+  #   task integration:garage:up    # just Garage (stays running)
+  #   task integration:garage:bootstrap   # create bucket + key, write .env
+  #   task integration:server:start # just the OSP proxy (background)
+  #   task integration:server:stop  # kill the proxy
+
+  integration:setup:
+    desc: "Install Python deps for the integration test project"
+    dir: integration/test_server
+    cmds:
+      - uv sync
+
+  integration:garage:up:
+    desc: "Start the Garage S3 container (stays running)"
+    dir: integration/test_server
+    cmds:
+      - docker compose up -d
+      - echo "Garage starting — waiting for health check …"
+      - docker compose wait garage || true
+
+  integration:garage:down:
+    desc: "Stop and remove the Garage container"
+    dir: integration/test_server
+    cmds:
+      - docker compose down
+
+  integration:garage:destroy:
+    desc: "Stop Garage AND remove its data volumes"
+    dir: integration/test_server
+    cmds:
+      - docker compose down -v
+
+  integration:garage:logs:
+    desc: "Follow Garage container logs"
+    dir: integration/test_server
+    cmds:
+      - docker compose logs -f
+
+  integration:garage:status:
+    desc: "Show Garage cluster status via admin API"
+    cmds:
+      - |
+        curl -sf -H "Authorization: Bearer osp-integration-admin-token" \
+          http://localhost:3903/v1/status | python3 -m json.tool
+
+  integration:garage:bootstrap:
+    desc: "Create bucket + HMAC key in Garage, write integration/test_server/.env"
+    dir: integration/test_server
+    cmds:
+      - uv run python bootstrap.py
+
+  integration:server:start:
+    desc: "Start the OSP proxy in the background (logs → integration/test_server/proxy.log)"
+    cmds:
+      - |
+        nohup uv run --no-sync python integration/test_server/server.py \
+          > integration/test_server/proxy.log 2>&1 &
+        echo $! > integration/test_server/.proxy.pid
+        sleep 2
+        if kill -0 $(cat integration/test_server/.proxy.pid) 2>/dev/null; then
+          echo "✅ Proxy started (PID=$(cat integration/test_server/.proxy.pid))"
+          echo "   logs: integration/test_server/proxy.log"
+          echo "   http://localhost:6190   metrics: http://localhost:9091/metrics"
+        else
+          echo "❌ Proxy failed to start — check integration/test_server/proxy.log"
+          exit 1
+        fi
+
+  integration:server:stop:
+    desc: "Stop the background OSP proxy"
+    cmds:
+      - |
+        PID_FILE=integration/test_server/.proxy.pid
+        if [ -f "$PID_FILE" ]; then
+          PID=$(cat "$PID_FILE")
+          kill "$PID" 2>/dev/null && echo "Proxy (PID=$PID) stopped." || echo "Process not found."
+          rm -f "$PID_FILE"
+        else
+          echo "No .proxy.pid file found — proxy may not be running."
+        fi
+
+  integration:server:logs:
+    desc: "Tail the proxy log"
+    cmds:
+      - tail -f integration/test_server/proxy.log
+
+  integration:up:
+    desc: "Full environment: Garage up → bootstrap → proxy start"
+    cmds:
+      - task: integration:garage:up
+      - task: integration:garage:bootstrap
+      - task: integration:server:start
+
+  integration:down:
+    desc: "Tear down: stop proxy → stop Garage"
+    cmds:
+      - task: integration:server:stop
+      - task: integration:garage:down
+
+  integration:test:
+    desc: "Run integration tests against the running environment"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/ -v
+
+  integration:test:fast:
+    desc: "Run integration tests, stop on first failure"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/ -v -x
+
+  integration:run:
+    desc: "Automated: up → test → down (tears down even on failure)"
+    cmds:
+      - task: integration:up
+      - defer: {task: integration:down}
+      - task: integration:test
+
   # ── lint / fmt ─────────────────────────────────────────────────────────────
 
   fmt:

@@ -731,6 +731,17 @@ pub async fn signature_is_valid_for_presigned(
 
     debug!("datetime: {}", datetime);
 
+    // Check expiry: X-Amz-Expires is in seconds relative to X-Amz-Date
+    if let Some(expires_str) = params.get("X-Amz-Expires") {
+        let expires_secs: i64 = expires_str.parse().map_err(|_| "Invalid X-Amz-Expires")?;
+        let expiry = datetime + chrono::Duration::seconds(expires_secs);
+        let now = chrono::Utc::now();
+        if now > expiry {
+            debug!("presigned URL expired at {}, now is {}", expiry, now);
+            return Err("Presigned URL has expired".into());
+        }
+    }
+
     let body_bytes: &[u8] = b"UNSIGNED-PAYLOAD";
     let payload_override = None;
 

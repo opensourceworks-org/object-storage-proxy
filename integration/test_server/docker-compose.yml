@@ -1,0 +1,24 @@
+services:
+  garage:
+    image: dxflrs/garage:v1.0.1
+    container_name: osp-garage
+    ports:
+      - "3900:3900"   # S3 API
+      - "3901:3901"   # RPC (intra-cluster)
+      - "3903:3903"   # Admin API
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    command: /garage server
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  garage-meta:
+  garage-data:

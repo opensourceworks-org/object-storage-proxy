@@ -25,6 +25,10 @@
 | `task wheel:release` | release wheel → `target/wheels/` |
 | `task clean` | remove Rust artefacts and `.venv` |
 | `task clean:wheels` | remove `target/wheels/` only |
+| `task integration:run` | automated integration test: up → test → down |
+| `task integration:up` | start Garage + bootstrap + OSP proxy |
+| `task integration:down` | stop proxy + stop Garage |
+| `task integration:test` | run pytest suite against the running environment |
 
 > **NixOS note:** `maturin develop` can silently leave a stale `.so` in site-packages due to hard-link restrictions.  
 > The `build` and `build:release` tasks work around this by copying the freshly-compiled `.so` directly.  
@@ -165,3 +169,92 @@ For Python:
 uv run ruff check .
 uv run ruff format .
 ```
+
+---
+
+## Integration testing
+
+The integration test suite runs OSP against a real [Garage](https://garagehq.deuxfleurs.fr/) S3-compatible storage node inside Docker. All tests live under `integration/test_server/tests/` and use pytest + boto3.
+
+### Prerequisites
+
+- Docker (with Compose v2)
+- `aws` CLI v2 (used by the CLI test suite)
+
+### One-shot: automated run
+
+```bash
+task integration:setup    # install test Python deps (once)
+task integration:run      # garage up → bootstrap → proxy → test → teardown
+```
+
+`integration:run` tears everything down even if tests fail.
+
+### Manual workflow (recommended for development)
+
+Bring the stack up once and iterate on tests without restarting:
+
+```bash
+task integration:setup           # install test Python deps (once)
+task integration:garage:up       # start Garage container
+task integration:garage:bootstrap  # create bucket + HMAC key, write .env
+task integration:server:start    # start the OSP proxy in the background
+```
+
+Run the tests:
+
+```bash
+task integration:test            # full suite
+task integration:test:fast       # stop on first failure (-x)
+```
+
+When done:
+
+```bash
+task integration:down            # stop proxy + stop Garage
+task integration:garage:destroy  # also wipe Garage data volumes
+```
+
+### Task reference
+
+| Task | Description |
+|------|-------------|
+| `integration:setup` | `uv sync` in `integration/test_server/` |
+| `integration:up` | Garage up → bootstrap → proxy start |
+| `integration:down` | Stop proxy → stop Garage |
+| `integration:run` | Automated: up → test → down (teardown on failure too) |
+| `integration:garage:up` | Start the Garage Docker container |
+| `integration:garage:down` | Stop and remove the container |
+| `integration:garage:destroy` | Stop container **and** remove data volumes |
+| `integration:garage:bootstrap` | Create bucket + HMAC key in Garage, write `.env` |
+| `integration:garage:logs` | Follow Garage container logs |
+| `integration:garage:status` | Query Garage cluster status via admin API |
+| `integration:server:start` | Start OSP proxy in the background (logs → `proxy.log`) |
+| `integration:server:stop` | Stop the background proxy |
+| `integration:server:logs` | Tail the proxy log |
+| `integration:test` | Run pytest suite against the running environment |
+| `integration:test:fast` | Same, with `-x` (stop on first failure) |
+
+### What the tests cover
+
+| File | Coverage |
+|------|----------|
+| `tests/test_objects.py` | PutObject, GetObject, HeadObject, CopyObject, DeleteObject, DeleteObjects, ListObjectsV2 |
+| `tests/test_multipart.py` | CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts |
+| `tests/test_presigned.py` | Presigned GET/PUT, expiry enforcement, repeated-use limiting |
+| `tests/test_aws_cli.py` | `aws s3 ls`, `cp`, `sync`, `rm` via subprocess |
+
+### Ports used
+
+| Port | Service |
+|------|---------|
+| 3900 | Garage S3 API |
+| 3901 | Garage RPC |
+| 3903 | Garage admin API |
+| 6190 | OSP proxy (S3 frontend) |
+| 9091 | OSP Prometheus metrics |
+
+### Environment
+
+`bootstrap.py` writes `integration/test_server/.env` with the generated Garage credentials. `server.py` and the pytest fixtures both load this file automatically. The file is gitignored — never commit it.
+
