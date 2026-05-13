@@ -212,6 +212,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Chores
+- Release v0.5.5
+
 - Upgrade reqwest
 
 - Upgrade all dependencies (pingora 0.5→0.8, keep pyo3 0.25/reqwest 0.12)
@@ -437,3 +439,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apply cargo fmt
 
 - Apply cargo fmt
+
+
+
