@@ -731,7 +731,10 @@ impl ProxyHttp for MyProxy {
                                     write_error_response_with_header(
                                         session,
                                         StatusCode::FORBIDDEN,
-                                        format!("Presigned URL has expired: {}", session.req_header().uri.path()),
+                                        format!(
+                                            "Presigned URL has expired: {}",
+                                            session.req_header().uri.path()
+                                        ),
                                     )
                                     .await?;
                                     return Ok(true);
