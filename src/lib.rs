@@ -1222,19 +1222,19 @@ impl ProxyHttp for MyProxy {
     ) -> Result<()> {
         // 0. Track inbound bytes regardless of streaming state
         #[cfg(feature = "metrics")]
-        if let Some(payload) = body.as_ref() {
-            if !payload.is_empty() {
-                let bucket = _session
-                    .req_header()
-                    .uri
-                    .path()
-                    .split('/')
-                    .nth(1)
-                    .unwrap_or("-");
-                utils::metrics::TRANSFER_BYTES_TOTAL
-                    .with_label_values(&["rx", bucket])
-                    .inc_by(payload.len() as u64);
-            }
+        if let Some(payload) = body.as_ref()
+            && !payload.is_empty()
+        {
+            let bucket = _session
+                .req_header()
+                .uri
+                .path()
+                .split('/')
+                .nth(1)
+                .unwrap_or("-");
+            utils::metrics::TRANSFER_BYTES_TOTAL
+                .with_label_values(&["rx", bucket])
+                .inc_by(payload.len() as u64);
         }
 
         // 1. Only active when we stashed a StreamingState in the request filter

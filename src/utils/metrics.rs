@@ -21,7 +21,7 @@ use prometheus::{
 };
 
 /// The global Prometheus registry for all OSP metrics.
-pub static REGISTRY: Lazy<Registry> = Lazy::new(|| Registry::new());
+pub static REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
 
 // ── Counters ──────────────────────────────────────────────────────────────────
 
