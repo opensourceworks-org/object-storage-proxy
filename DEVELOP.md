@@ -32,6 +32,8 @@
 | `task hooks:install` | install (or re-install) the pre-commit git hooks |
 | `task hooks:run` | run all pre-commit checks against every file |
 | `task hooks:update` | bump pre-commit hook revisions to latest |
+| `task changelog` | regenerate `CHANGELOG.md` from full git history |
+| `task changelog:unreleased` | preview commits since the last tag |
 
 > **NixOS note:** `maturin develop` can silently leave a stale `.so` in site-packages due to hard-link restrictions.
 > The `build` and `build:release` tasks work around this by copying the freshly-compiled `.so` directly.
@@ -177,36 +179,101 @@ uv run ruff format .
 
 ## Pre-commit hooks
 
-`task setup` installs the hooks automatically. To install them manually:
+`task setup` installs the hooks automatically. To install them manually on an existing checkout:
 
 ```bash
 task hooks:install
 ```
 
-The hooks run on every `git commit` and check:
+The hooks run on every `git commit` and enforce:
 
-| Hook | What it checks |
-|------|---------------|
-| `cargo fmt` | Rust formatting (fails if diff) |
-| `cargo clippy` | Rust lints (`-D warnings`) |
-| `ruff` | Python lints (auto-fixes staged files) |
-| `ruff-format` | Python formatting |
-| trailing whitespace | All text files |
-| end-of-file newline | All text files |
-| valid YAML / TOML | Config files |
-| merge conflict markers | All files |
+| Hook | Scope | What it checks |
+|------|-------|---------------|
+| `cargo fmt` | `*.rs` | Rust formatting — fails if a diff would be produced |
+| `cargo clippy` | `*.rs` | Rust lints (`-D warnings`) |
+| `ruff` (lint) | `*.py` | Python lints — auto-fixes staged files |
+| `ruff-format` | `*.py` | Python formatting |
+| trailing whitespace | source files | No trailing spaces |
+| end-of-file newline | source files | Files end with exactly one newline |
+| check-yaml | `*.yml / *.yaml` | Valid YAML syntax |
+| check-toml | `*.toml` | Valid TOML syntax |
+| merge conflict markers | all | No leftover `<<<<<<<` markers |
 
-To run all checks manually without committing:
+The following paths are excluded from all general hooks (they are third-party configs, build artefacts, or binary-ish files):
+
+- `target/` — Rust build output
+- `*.lock` — `Cargo.lock`, `uv.lock`
+- `img/`, `*.svg` — image assets
+- `integration/presto/`, `integration/trino/` — third-party Hadoop/Hive configs
+- `*.properties`, `*.xml`, `*.cnf` — Java / OpenSSL config files
+
+To run all checks against every file without committing:
 
 ```bash
 task hooks:run
 ```
 
-To upgrade hook versions:
+To bump hook revisions to their latest tagged versions:
 
 ```bash
 task hooks:update
 ```
+
+---
+
+## Changelog
+
+`CHANGELOG.md` is generated from git commit history using [git-cliff](https://git-cliff.org/).
+Commits must follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>[optional scope]: <description>
+
+feat: add presigned URL expiry enforcement
+fix(ci): correct aarch64 linker flags
+docs: update configuration reference
+chore: bump dependency versions
+```
+
+Supported types and the changelog sections they map to:
+
+| Type | Section |
+|------|---------|
+| `feat` | Added |
+| `fix` | Fixed |
+| `perf` | Performance |
+| `refactor` | Changed |
+| `docs` / `doc` | Documentation |
+| `test` | Testing |
+| `ci` | CI |
+| `chore` | Chores |
+| `revert` | Reverted |
+
+Append `!` or add `BREAKING CHANGE:` in the footer to mark a breaking change.
+
+### Regenerate the full changelog
+
+```bash
+task changelog
+```
+
+This overwrites `CHANGELOG.md` with the full history derived from all tags.
+
+### Preview unreleased changes
+
+```bash
+task changelog:unreleased
+```
+
+Prints the section that would be added for commits since the last tag — useful before tagging a release.
+
+### Generate for a specific range
+
+```bash
+task changelog:tag -- v0.5.3..v0.5.4
+```
+
+Configuration lives in [`cliff.toml`](cliff.toml).
 
 ---
 

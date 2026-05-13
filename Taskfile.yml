@@ -32,6 +32,23 @@ tasks:
     cmds:
       - uv run pre-commit autoupdate
 
+  # ── changelog ─────────────────────────────────────────────────────────────
+
+  changelog:
+    desc: "Regenerate CHANGELOG.md from git history (all tags)"
+    cmds:
+      - git cliff --config cliff.toml -o CHANGELOG.md
+
+  changelog:unreleased:
+    desc: "Preview unreleased changes since the last tag"
+    cmds:
+      - git cliff --config cliff.toml --unreleased
+
+  changelog:tag:
+    desc: "Generate changelog for a specific tag range, e.g. task changelog:tag -- v0.5.3..v0.5.4"
+    cmds:
+      - git cliff --config cliff.toml {{.CLI_ARGS}}
+
   # ── build ──────────────────────────────────────────────────────────────────
 
   build:
