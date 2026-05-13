@@ -92,6 +92,9 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
+          before-script-linux: |
+            # openssl-src's Configure requires IPC::Cmd which is missing from the manylinux image.
+            yum install -y perl-IPC-Cmd || true
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
