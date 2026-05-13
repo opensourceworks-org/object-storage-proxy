@@ -80,7 +80,7 @@ services:
       - presto
 volumes:
   hive-metastore-data:
-  
+
   # Optional: run the CLI in its own service for convenience
   # presto-cli:
   #   image: prestodb/presto:latest

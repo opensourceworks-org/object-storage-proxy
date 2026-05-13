@@ -11,9 +11,26 @@ tasks:
   # ── setup ──────────────────────────────────────────────────────────────────
 
   setup:
-    desc: "Install Python dev dependencies (uv sync)"
+    desc: "Install Python dev dependencies and install git hooks"
     cmds:
       - uv sync
+      - uv run pre-commit install
+      - echo "✅ pre-commit hooks installed"
+
+  hooks:install:
+    desc: "Install (or re-install) the pre-commit git hooks"
+    cmds:
+      - uv run pre-commit install
+
+  hooks:run:
+    desc: "Run pre-commit checks against all files"
+    cmds:
+      - uv run pre-commit run --all-files
+
+  hooks:update:
+    desc: "Bump pre-commit hook revisions to latest"
+    cmds:
+      - uv run pre-commit autoupdate
 
   # ── build ──────────────────────────────────────────────────────────────────
 

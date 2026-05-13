@@ -9,12 +9,10 @@ The minimum part size in S3 is 5 MiB for all parts except the last.
 
 from __future__ import annotations
 
-import io
-import os
 
 import pytest
 
-PART_SIZE = 5 * 1024 * 1024   # 5 MiB — S3 minimum
+PART_SIZE = 5 * 1024 * 1024  # 5 MiB — S3 minimum
 
 
 def _random_bytes(n: int) -> bytes:
@@ -32,7 +30,9 @@ class TestMultipartUpload:
 
         try:
             parts = []
-            for i, body in enumerate([_random_bytes(PART_SIZE), b"final-chunk"], start=1):
+            for i, body in enumerate(
+                [_random_bytes(PART_SIZE), b"final-chunk"], start=1
+            ):
                 resp = s3.upload_part(
                     Bucket=bucket,
                     Key=key,
@@ -69,13 +69,17 @@ class TestMultipartUpload:
             parts = []
             for i, chunk in enumerate(chunks, start=1):
                 resp = s3.upload_part(
-                    Bucket=bucket, Key=key,
-                    UploadId=upload_id, PartNumber=i, Body=chunk,
+                    Bucket=bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                    PartNumber=i,
+                    Body=chunk,
                 )
                 parts.append({"ETag": resp["ETag"], "PartNumber": i})
 
             s3.complete_multipart_upload(
-                Bucket=bucket, Key=key,
+                Bucket=bucket,
+                Key=key,
                 UploadId=upload_id,
                 MultipartUpload={"Parts": parts},
             )
@@ -93,8 +97,10 @@ class TestMultipartUpload:
 
         # Upload one part
         s3.upload_part(
-            Bucket=bucket, Key=key,
-            UploadId=upload_id, PartNumber=1,
+            Bucket=bucket,
+            Key=key,
+            UploadId=upload_id,
+            PartNumber=1,
             Body=_random_bytes(PART_SIZE),
         )
 
@@ -115,8 +121,10 @@ class TestMultipartUpload:
             etags = []
             for i in range(1, 3):
                 resp = s3.upload_part(
-                    Bucket=bucket, Key=key,
-                    UploadId=upload_id, PartNumber=i,
+                    Bucket=bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                    PartNumber=i,
                     Body=_random_bytes(PART_SIZE),
                 )
                 etags.append(resp["ETag"])

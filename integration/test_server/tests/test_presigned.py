@@ -40,7 +40,7 @@ def _http_put(url: str, body: bytes) -> int:
 
 class TestPresignedGet:
     def test_presigned_get_returns_body(self, s3, bucket, prefix):
-        key  = f"{prefix}presigned-get.txt"
+        key = f"{prefix}presigned-get.txt"
         body = b"presigned content"
         s3.put_object(Bucket=bucket, Key=key, Body=body)
 
@@ -60,7 +60,7 @@ class TestPresignedGet:
             ExpiresIn=60,
         )
         status, _ = _http_get(url)
-        assert status in (403, 404)   # proxy or Garage may return either
+        assert status in (403, 404)  # proxy or Garage may return either
 
     def test_presigned_get_expired_url_rejected(self, s3, bucket, prefix):
         key = f"{prefix}expired.txt"
@@ -79,7 +79,7 @@ class TestPresignedGet:
     def test_presigned_get_different_clients_same_url(self, s3, bucket, prefix):
         """Two sequential GETs of the same presigned URL should both succeed
         (assuming max_presign_url_usage_attempts is > 2 or not set)."""
-        key  = f"{prefix}shared.txt"
+        key = f"{prefix}shared.txt"
         body = b"shared-presigned"
         s3.put_object(Bucket=bucket, Key=key, Body=body)
 
@@ -93,14 +93,16 @@ class TestPresignedGet:
         # If the proxy has a usage limit of 1 the second call may be 403 —
         # mark it with xfail rather than hard-fail so the test is informative.
         if s1 == 200 and s2 == 403:
-            pytest.xfail("Proxy rejected second use of presigned URL (usage limit active)")
+            pytest.xfail(
+                "Proxy rejected second use of presigned URL (usage limit active)"
+            )
         assert s1 == 200 and d1 == body
         assert s2 == 200 and d2 == body
 
 
 class TestPresignedPut:
     def test_presigned_put_then_get(self, s3, bucket, prefix):
-        key  = f"{prefix}presigned-put.txt"
+        key = f"{prefix}presigned-put.txt"
         body = b"uploaded via presigned PUT"
 
         put_url = s3.generate_presigned_url(
@@ -124,4 +126,6 @@ class TestPresignedPut:
         )
         time.sleep(2)
         status = _http_put(put_url, b"should fail")
-        assert status in (400, 403), f"Expected 400/403 for expired presigned PUT, got {status}"
+        assert status in (400, 403), (
+            f"Expected 400/403 for expired presigned PUT, got {status}"
+        )

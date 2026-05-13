@@ -25,14 +25,14 @@ import requests
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-ADMIN_BASE    = "http://localhost:3903/v1"
-ADMIN_TOKEN   = "osp-integration-admin-token"   # must match garage.toml
-BUCKET_NAME   = "test-bucket"
-KEY_NAME      = "osp-backend-key"
+ADMIN_BASE = "http://localhost:3903/v1"
+ADMIN_TOKEN = "osp-integration-admin-token"  # must match garage.toml
+BUCKET_NAME = "test-bucket"
+KEY_NAME = "osp-backend-key"
 
 HEADERS = {
     "Authorization": f"Bearer {ADMIN_TOKEN}",
-    "Content-Type":  "application/json",
+    "Content-Type": "application/json",
 }
 
 HERE = Path(__file__).parent
@@ -40,11 +40,14 @@ HERE = Path(__file__).parent
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def admin(method: str, path: str, **kwargs) -> requests.Response:
     url = f"{ADMIN_BASE}{path}"
     resp = requests.request(method, url, headers=HEADERS, **kwargs)
     if not resp.ok:
-        print(f"  [!] {method} {path} → {resp.status_code}: {resp.text}", file=sys.stderr)
+        print(
+            f"  [!] {method} {path} → {resp.status_code}: {resp.text}", file=sys.stderr
+        )
         resp.raise_for_status()
     return resp
 
@@ -65,6 +68,7 @@ def wait_for_garage(timeout: int = 30) -> None:
 
 
 # ── Steps ─────────────────────────────────────────────────────────────────────
+
 
 def get_node_id() -> str:
     status = admin("GET", "/status").json()
@@ -91,15 +95,19 @@ def set_layout(node_id: str) -> None:
         return
 
     print("   Staging layout …")
-    admin("POST", "/layout", json=[
-        {
-            "id":       node_id,
-            "action":   "configure",
-            "zone":     "dc1",
-            "capacity": 1 * 1024 * 1024 * 1024,   # 1 GiB in bytes
-            "tags":     [],
-        }
-    ])
+    admin(
+        "POST",
+        "/layout",
+        json=[
+            {
+                "id": node_id,
+                "action": "configure",
+                "zone": "dc1",
+                "capacity": 1 * 1024 * 1024 * 1024,  # 1 GiB in bytes
+                "tags": [],
+            }
+        ],
+    )
 
     # Re-read to get the version that was actually staged
     layout = admin("GET", "/layout").json()
@@ -145,11 +153,11 @@ def ensure_key() -> tuple[str, str]:
                 for line in env_path.read_text().splitlines():
                     if line.startswith("GARAGE_SECRET_ACCESS_KEY="):
                         secret = line.split("=", 1)[1].strip()
-                        print(f"   Recovered secret from .env.")
+                        print("   Recovered secret from .env.")
                         return access, secret
 
             # .env missing or doesn't have the secret — delete and recreate
-            print(f"   Secret not recoverable, recreating key …")
+            print("   Secret not recoverable, recreating key …")
             admin("DELETE", f"/key?id={access}")
             break
 
@@ -163,12 +171,16 @@ def ensure_key() -> tuple[str, str]:
 
 def grant_key(bucket_id: str, access_key_id: str) -> None:
     """Grant the key full access on the bucket (idempotent)."""
-    print(f"   Granting key access on bucket …")
-    admin("POST", "/bucket/allow", json={
-        "bucketId":    bucket_id,
-        "accessKeyId": access_key_id,
-        "permissions": {"read": True, "write": True, "owner": True},
-    })
+    print("   Granting key access on bucket …")
+    admin(
+        "POST",
+        "/bucket/allow",
+        json={
+            "bucketId": bucket_id,
+            "accessKeyId": access_key_id,
+            "permissions": {"read": True, "write": True, "owner": True},
+        },
+    )
     print("✅ Permissions granted.")
 
 
@@ -201,7 +213,7 @@ def print_summary(access_key: str, secret_key: str) -> None:
     print("─" * 60)
     print("  Integration environment ready")
     print("─" * 60)
-    print(f"  Garage S3 endpoint : http://localhost:3900")
+    print("  Garage S3 endpoint : http://localhost:3900")
     print(f"  Bucket             : {BUCKET_NAME}")
     print(f"  Backend access key : {access_key}")
     print(f"  Backend secret key : {secret_key[:6]}…")
@@ -221,6 +233,7 @@ def print_summary(access_key: str, secret_key: str) -> None:
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     wait_for_garage()

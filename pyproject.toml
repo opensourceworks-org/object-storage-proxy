@@ -33,6 +33,7 @@ features = ["pyo3/extension-module"]
 [dependency-groups]
 dev = [
     "maturin>=1.13.3",
+    "pre-commit>=4.0.0",
     "pytest>=9.0.3",
 ]
 

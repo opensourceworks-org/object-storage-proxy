@@ -146,7 +146,7 @@ jobs:
 
       - name: Install Rust toolchain
         env:
-          HOME: /root      
+          HOME: /root
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -156,7 +156,7 @@ jobs:
 
       - name: Install maturin
         env:
-          HOME: /root    
+          HOME: /root
         run: |
           source /root/.cargo/env
           cargo install maturin --locked --force
@@ -182,7 +182,7 @@ jobs:
         with:
           name: wheels-musllinux-${{ matrix.target }}
           path: dist
-  
+
 
   # windows:
   #   runs-on: ${{ matrix.platform.runner }}

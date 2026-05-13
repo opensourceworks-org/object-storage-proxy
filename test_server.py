@@ -1,6 +1,5 @@
 import json
 import os
-import random
 import object_storage_proxy as osp
 
 from dotenv import load_dotenv

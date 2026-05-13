@@ -1,7 +1,6 @@
 import json
 import os
 
-import object_storage_proxy as osp
 from dotenv import load_dotenv
 from object_storage_proxy import ProxyServerConfig, start_server
 

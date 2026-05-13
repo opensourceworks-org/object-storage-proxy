@@ -29,9 +29,12 @@
 | `task integration:up` | start Garage + bootstrap + OSP proxy |
 | `task integration:down` | stop proxy + stop Garage |
 | `task integration:test` | run pytest suite against the running environment |
+| `task hooks:install` | install (or re-install) the pre-commit git hooks |
+| `task hooks:run` | run all pre-commit checks against every file |
+| `task hooks:update` | bump pre-commit hook revisions to latest |
 
-> **NixOS note:** `maturin develop` can silently leave a stale `.so` in site-packages due to hard-link restrictions.  
-> The `build` and `build:release` tasks work around this by copying the freshly-compiled `.so` directly.  
+> **NixOS note:** `maturin develop` can silently leave a stale `.so` in site-packages due to hard-link restrictions.
+> The `build` and `build:release` tasks work around this by copying the freshly-compiled `.so` directly.
 > Always use `task build` / `task build:release` rather than calling `maturin develop` by hand.
 
 ---
@@ -172,6 +175,41 @@ uv run ruff format .
 
 ---
 
+## Pre-commit hooks
+
+`task setup` installs the hooks automatically. To install them manually:
+
+```bash
+task hooks:install
+```
+
+The hooks run on every `git commit` and check:
+
+| Hook | What it checks |
+|------|---------------|
+| `cargo fmt` | Rust formatting (fails if diff) |
+| `cargo clippy` | Rust lints (`-D warnings`) |
+| `ruff` | Python lints (auto-fixes staged files) |
+| `ruff-format` | Python formatting |
+| trailing whitespace | All text files |
+| end-of-file newline | All text files |
+| valid YAML / TOML | Config files |
+| merge conflict markers | All files |
+
+To run all checks manually without committing:
+
+```bash
+task hooks:run
+```
+
+To upgrade hook versions:
+
+```bash
+task hooks:update
+```
+
+---
+
 ## Integration testing
 
 The integration test suite runs OSP against a real [Garage](https://garagehq.deuxfleurs.fr/) S3-compatible storage node inside Docker. All tests live under `integration/test_server/tests/` and use pytest + boto3.
@@ -257,4 +295,3 @@ task integration:garage:destroy  # also wipe Garage data volumes
 ### Environment
 
 `bootstrap.py` writes `integration/test_server/.env` with the generated Garage credentials. `server.py` and the pytest fixtures both load this file automatically. The file is gitignored — never commit it.
-

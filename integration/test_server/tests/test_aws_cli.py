@@ -13,7 +13,6 @@ Requires: `aws` CLI v2 installed and on PATH.
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
@@ -31,6 +30,7 @@ pytestmark = pytest.mark.skipif(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def aws(
     *args: str,
@@ -55,6 +55,7 @@ def s3_url(bucket: str, key: str = "") -> str:
 
 # ── aws s3 ls ─────────────────────────────────────────────────────────────────
 
+
 class TestAwsLs:
     def test_ls_bucket(self, s3, bucket, prefix, aws_env):
         s3.put_object(Bucket=bucket, Key=f"{prefix}ls-test.txt", Body=b"ls")
@@ -75,25 +76,32 @@ class TestAwsLs:
                 Body=b"a" * 1024,
             )
         result = aws(
-            "s3", "ls", s3_url(bucket, prefix),
-            "--recursive", "--human-readable", "--summarize",
+            "s3",
+            "ls",
+            s3_url(bucket, prefix),
+            "--recursive",
+            "--human-readable",
+            "--summarize",
             env=aws_env,
         )
         stdout = result.stdout
         # --summarize adds a "Total Objects" and "Total Size" footer
         assert "Total Objects" in stdout
-        assert "Total Size"    in stdout
+        assert "Total Size" in stdout
         # --human-readable should produce a unit suffix (Bytes / KiB / MiB)
         assert re.search(r"\d+\s+(Bytes|KiB|MiB|GiB)", stdout)
 
     def test_ls_nonexistent_prefix_returns_empty(self, aws_env, bucket):
-        result = aws("s3", "ls", s3_url(bucket, "does-not-exist/"), env=aws_env, check=False)
+        result = aws(
+            "s3", "ls", s3_url(bucket, "does-not-exist/"), env=aws_env, check=False
+        )
         # aws s3 ls returns exit code 1 with empty output for a missing prefix
         assert result.returncode in (0, 1)
         assert result.stdout.strip() == ""
 
 
 # ── aws s3 cp ─────────────────────────────────────────────────────────────────
+
 
 class TestAwsCp:
     def test_cp_upload_file(self, tmp_dir, bucket, prefix, aws_env):
@@ -106,7 +114,7 @@ class TestAwsCp:
         assert out.read_bytes() == b"aws cp upload"
 
     def test_cp_download_file(self, s3, tmp_dir, bucket, prefix, aws_env):
-        key  = f"{prefix}download.txt"
+        key = f"{prefix}download.txt"
         body = b"download-me"
         s3.put_object(Bucket=bucket, Key=key, Body=body)
         dest = tmp_dir / "result.txt"
@@ -117,8 +125,12 @@ class TestAwsCp:
         local = tmp_dir / "data.json"
         local.write_text('{"ok": true}')
         aws(
-            "s3", "cp", str(local), s3_url(bucket, f"{prefix}data.json"),
-            "--content-type", "application/json",
+            "s3",
+            "cp",
+            str(local),
+            s3_url(bucket, f"{prefix}data.json"),
+            "--content-type",
+            "application/json",
             env=aws_env,
         )
         resp = s3.head_object(Bucket=bucket, Key=f"{prefix}data.json")
@@ -130,27 +142,44 @@ class TestAwsCp:
         for i in range(4):
             (src_dir / f"file-{i}.txt").write_bytes(f"content {i}".encode())
 
-        aws("s3", "cp", str(src_dir), s3_url(bucket, f"{prefix}dir/"),
-            "--recursive", env=aws_env)
+        aws(
+            "s3",
+            "cp",
+            str(src_dir),
+            s3_url(bucket, f"{prefix}dir/"),
+            "--recursive",
+            env=aws_env,
+        )
 
         resp = s3.list_objects_v2(Bucket=bucket, Prefix=f"{prefix}dir/")
         keys = [o["Key"] for o in resp.get("Contents", [])]
         assert len(keys) == 4
 
-    def test_cp_recursive_download_directory(self, s3, tmp_dir, bucket, prefix, aws_env):
+    def test_cp_recursive_download_directory(
+        self, s3, tmp_dir, bucket, prefix, aws_env
+    ):
         for i in range(3):
-            s3.put_object(Bucket=bucket, Key=f"{prefix}dl-dir/f{i}.bin", Body=bytes([i] * 10))
+            s3.put_object(
+                Bucket=bucket, Key=f"{prefix}dl-dir/f{i}.bin", Body=bytes([i] * 10)
+            )
 
         dest_dir = tmp_dir / "dest"
         dest_dir.mkdir()
-        aws("s3", "cp", s3_url(bucket, f"{prefix}dl-dir/"), str(dest_dir),
-            "--recursive", env=aws_env)
+        aws(
+            "s3",
+            "cp",
+            s3_url(bucket, f"{prefix}dl-dir/"),
+            str(dest_dir),
+            "--recursive",
+            env=aws_env,
+        )
 
         files = list(dest_dir.iterdir())
         assert len(files) == 3
 
 
 # ── aws s3 sync ───────────────────────────────────────────────────────────────
+
 
 class TestAwsSync:
     def test_sync_upload(self, tmp_dir, s3, bucket, prefix, aws_env):
@@ -198,7 +227,9 @@ class TestAwsSync:
 
     def test_sync_download(self, s3, tmp_dir, bucket, prefix, aws_env):
         for i in range(3):
-            s3.put_object(Bucket=bucket, Key=f"{prefix}sync-dl/{i}.txt", Body=bytes([i]))
+            s3.put_object(
+                Bucket=bucket, Key=f"{prefix}sync-dl/{i}.txt", Body=bytes([i])
+            )
 
         dest = tmp_dir / "dl"
         dest.mkdir()
@@ -215,8 +246,12 @@ class TestAwsSync:
 
         remote = s3_url(bucket, f"{prefix}filtered/")
         aws(
-            "s3", "sync", str(src), remote,
-            "--exclude", "*.log",
+            "s3",
+            "sync",
+            str(src),
+            remote,
+            "--exclude",
+            "*.log",
             env=aws_env,
         )
 
@@ -227,6 +262,7 @@ class TestAwsSync:
 
 
 # ── aws s3 rm ─────────────────────────────────────────────────────────────────
+
 
 class TestAwsRm:
     def test_rm_single_object(self, s3, bucket, prefix, aws_env):
@@ -241,23 +277,26 @@ class TestAwsRm:
         for k in keys:
             s3.put_object(Bucket=bucket, Key=k, Body=b"x")
 
-        aws("s3", "rm", s3_url(bucket, f"{prefix}rm-dir/"),
-            "--recursive", env=aws_env)
+        aws("s3", "rm", s3_url(bucket, f"{prefix}rm-dir/"), "--recursive", env=aws_env)
 
         resp = s3.list_objects_v2(Bucket=bucket, Prefix=f"{prefix}rm-dir/")
         assert len(resp.get("Contents", [])) == 0
 
     def test_rm_recursive_with_exclude(self, s3, bucket, prefix, aws_env):
-        s3.put_object(Bucket=bucket, Key=f"{prefix}excl/keep.txt",   Body=b"keep")
+        s3.put_object(Bucket=bucket, Key=f"{prefix}excl/keep.txt", Body=b"keep")
         s3.put_object(Bucket=bucket, Key=f"{prefix}excl/remove.dat", Body=b"rm")
 
         aws(
-            "s3", "rm", s3_url(bucket, f"{prefix}excl/"),
-            "--recursive", "--exclude", "*.txt",
+            "s3",
+            "rm",
+            s3_url(bucket, f"{prefix}excl/"),
+            "--recursive",
+            "--exclude",
+            "*.txt",
             env=aws_env,
         )
 
         resp = s3.list_objects_v2(Bucket=bucket, Prefix=f"{prefix}excl/")
         keys = [Path(o["Key"]).name for o in resp.get("Contents", [])]
-        assert "keep.txt"   in keys
+        assert "keep.txt" in keys
         assert "remove.dat" not in keys

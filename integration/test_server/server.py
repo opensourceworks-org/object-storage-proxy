@@ -25,10 +25,10 @@ load_dotenv(Path(__file__).parent / ".env")
 from object_storage_proxy import ProxyServerConfig, start_server  # noqa: E402
 
 # ── Garage backend credentials ────────────────────────────────────────────────
-GARAGE_HOST       = os.environ.get("GARAGE_HOST", "localhost")
-GARAGE_PORT       = int(os.environ.get("GARAGE_PORT", "3900"))
-GARAGE_REGION     = os.environ.get("GARAGE_REGION", "garage")
-GARAGE_BUCKET     = os.environ.get("GARAGE_BUCKET", "test-bucket")
+GARAGE_HOST = os.environ.get("GARAGE_HOST", "localhost")
+GARAGE_PORT = int(os.environ.get("GARAGE_PORT", "3900"))
+GARAGE_REGION = os.environ.get("GARAGE_REGION", "garage")
+GARAGE_BUCKET = os.environ.get("GARAGE_BUCKET", "test-bucket")
 GARAGE_ACCESS_KEY = os.environ["GARAGE_ACCESS_KEY_ID"]
 GARAGE_SECRET_KEY = os.environ["GARAGE_SECRET_ACCESS_KEY"]
 
@@ -36,11 +36,12 @@ GARAGE_SECRET_KEY = os.environ["GARAGE_SECRET_ACCESS_KEY"]
 CLIENT_ACCESS_KEY = os.environ.get("OSP_CLIENT_ACCESS_KEY", "osp-client")
 CLIENT_SECRET_KEY = os.environ.get("OSP_CLIENT_SECRET_KEY", "osp-client-secret")
 
-OSP_PROXY_PORT  = int(os.environ.get("OSP_PROXY_PORT", "6190"))
+OSP_PROXY_PORT = int(os.environ.get("OSP_PROXY_PORT", "6190"))
 OSP_METRICS_PORT = int(os.environ.get("OSP_METRICS_PORT", "9091"))
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
+
 
 def lookup_secret(access_key: str) -> str | None:
     """Return the secret key for a given client access key."""
@@ -58,13 +59,13 @@ def authorize(token: str, bucket: str, request: dict) -> bool:
 
 cos_map = {
     GARAGE_BUCKET: {
-        "host":             GARAGE_HOST,
-        "port":             GARAGE_PORT,
-        "region":           GARAGE_REGION,
-        "access_key":       GARAGE_ACCESS_KEY,
-        "secret_key":       GARAGE_SECRET_KEY,
-        "addressing_style": "path",   # Garage works best with path style
-        "is_tls_enabled":   False,
+        "host": GARAGE_HOST,
+        "port": GARAGE_PORT,
+        "region": GARAGE_REGION,
+        "access_key": GARAGE_ACCESS_KEY,
+        "secret_key": GARAGE_SECRET_KEY,
+        "addressing_style": "path",  # Garage works best with path style
+        "is_tls_enabled": False,
     },
 }
 

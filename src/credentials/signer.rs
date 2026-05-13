@@ -803,10 +803,10 @@ pub async fn signature_is_valid_for_presigned(
 /// Build a stream whose items are *already* wrapped in
 /// "AWS-chunk-signed" envelopes.
 ///
-/// * `body`        - raw payload implementing `AsyncRead`  
-/// * `signing_key` - result of the usual `signing_key()` step  
-/// * `scope`       - e.g. `"20250501/eu-west-3/s3/aws4_request"`  
-/// * `ts`          - the `X-Amz-Date` you put in the header (`YYYYMMDDThhmmssZ`)  
+/// * `body`        - raw payload implementing `AsyncRead`
+/// * `signing_key` - result of the usual `signing_key()` step
+/// * `scope`       - e.g. `"20250501/eu-west-3/s3/aws4_request"`
+/// * `ts`          - the `X-Amz-Date` you put in the header (`YYYYMMDDThhmmssZ`)
 /// * `seed_sig`    - the `Signature=` value you computed for the
 ///   *headers* (the one that goes into `Authorization:`)
 ///
@@ -882,7 +882,7 @@ pub struct ChunkSigner {
 }
 
 impl ChunkSigner {
-    /// create a new signer.  
+    /// create a new signer.
     /// *`seed_signature`* is the **signature you put in the `Authorization` header**
     /// Create a new [`ChunkSigner`] from the seed values established during
     /// the initial header signing step.
@@ -1207,8 +1207,8 @@ fn sha256_hex(data: &[u8]) -> String {
 const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /// Calculate the per‑chunk signature (section *Defining the Chunk Body* of the
-/// AWS doc).  
-/// * `signing_key` is the value you built once from the secret key  
+/// AWS doc).
+/// * `signing_key` is the value you built once from the secret key
 /// * `prior_sig`  is the *seed* (first chunk) or the previous chunk’s signature
 fn compute_chunk_signature(
     payload: &[u8],

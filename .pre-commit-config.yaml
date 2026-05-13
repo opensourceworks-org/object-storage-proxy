@@ -1,0 +1,59 @@
+exclude: |
+  (?x)^(
+    target/           |   # Rust build artefacts
+    .*\.lock$         |   # Cargo.lock, uv.lock
+    img/              |   # SVG / image assets
+    integration/presto/   |   # third-party Presto/Hive config
+    integration/trino/    |   # third-party Trino config
+    .*\.svg$          |   # SVG files anywhere
+    .*\.properties$   |   # Java .properties files
+    .*\.xml$          |   # XML config files
+    .*\.cnf$              # OpenSSL config
+  )
+
+repos:
+  # ── Rust ──────────────────────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        language: system
+        entry: cargo fmt --
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        language: system
+        entry: cargo clippy -- -D warnings
+        types: [rust]
+        pass_filenames: false
+
+  # ── Python ────────────────────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        language: system
+        entry: uv run --no-sync ruff check --fix
+        types: [python]
+        pass_filenames: true
+
+      - id: ruff-format
+        name: ruff (format)
+        language: system
+        entry: uv run --no-sync ruff format
+        types: [python]
+        pass_filenames: true
+
+  # ── General ───────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: "target/"
+      - id: end-of-file-fixer
+        exclude: "target/"
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict

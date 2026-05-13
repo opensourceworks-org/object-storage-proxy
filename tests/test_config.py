@@ -1,6 +1,5 @@
 """Minimal smoke-tests for ProxyServerConfig — no live backend required."""
 
-import pytest
 import object_storage_proxy as osp
 
 
