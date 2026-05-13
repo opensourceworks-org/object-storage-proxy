@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-05-13
+
 ### Added
+- **Prometheus metrics** — built-in `/metrics` scrape endpoint, on by default (disable with `--no-default-features`).
+  - New `metrics_port: Option<u16>` field on `ProxyServerConfig`; when set, a lightweight Tokio HTTP listener serves `/metrics` on that port.
+  - Metrics: `osp_requests_total`, `osp_request_errors_total`, `osp_transfer_bytes_total`, `osp_presigned_url_hits_total`, `osp_presigned_url_rejected_total`, `osp_active_connections`, `osp_memory_bytes`, `osp_build_info`, `osp_request_duration_seconds`, `osp_response_size_bytes`.
+  - Memory gauge reads `/proc/self/status` (Linux); no-op on other platforms.
 - `flake.nix` for reproducible Rust + Python development environment via Nix.
 - `Taskfile.yml` with tasks for build, run, test, lint, and clean.
 - `BUILD.md` with detailed build and run instructions.
@@ -16,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.env.example` documenting all required environment variables.
 
 ### Changed
+- `prometheus` and `once_cell` are now gated behind the `metrics` Cargo feature (enabled by default).
 - Fixed `pyproject.toml` license classifier from Proprietary to MIT.
 - Added `license`, `homepage`, `repository`, and `description` to `Cargo.toml`.
 - Updated `object_storage_proxy.pyi` stub with all `ProxyServerConfig` parameters.
@@ -23,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Unused import compiler warnings resolved via `cargo fix`.
+- CI: aarch64 Linux builds now use native `ubuntu-22.04-arm` runner (removes cross-compilation).
+- CI: `perl-core` + `OPENSSL_STATIC=1` for fully self-contained wheels on manylinux.
+- NixOS stale `.so` workaround: `task build` uses `cargo build` + `cp` instead of `maturin develop`.
 
 ## [0.4.3] - 2025-04-19
 

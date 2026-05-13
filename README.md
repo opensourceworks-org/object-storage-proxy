@@ -37,6 +37,7 @@ This proxy solves that by:
 - HTTP and HTTPS frontends (HTTPS supports HTTP/2).
 - Configurable thread count and per-URL request counting.
 - Presigned URL support with configurable max-usage limiting.
+- Built-in Prometheus metrics endpoint (`/metrics`) — on by default, opt-out via `--no-default-features`.
 
 ## Installation
 
@@ -159,6 +160,7 @@ A fuller example with HTTPS, HMAC keystores, and IBM COS is in [examples/minimal
 | `skip_signature_validation` | `bool` | no | `False` | Skip verification of incoming request signatures. Development only. |
 | `max_presign_url_usage_attempts` | `int` | no | `3` | Max times a presigned URL may be used before being rejected. |
 | `server_name` | `str` | no | `"osp"` | Server name included in log output. |
+| `metrics_port` | `int` | no | `None` | Port to expose the Prometheus `/metrics` scrape endpoint. When `None` no endpoint is started. |
 
 ### cos_map entries
 
@@ -189,6 +191,54 @@ def lookup_secret(access_key: str) -> str | None: ...
 
 # Authorize a request. request dict contains: method, path, query, headers.
 def authorize(token: str, bucket: str, request: dict | None = None) -> bool: ...
+```
+
+## Prometheus metrics
+
+The proxy ships with a built-in Prometheus scrape endpoint. Set `metrics_port` to enable it:
+
+```python
+config = ProxyServerConfig(
+    cos_map=cos_map,
+    http_port=6190,
+    metrics_port=9090,   # exposes http://localhost:9090/metrics
+)
+```
+
+Then scrape it:
+
+```bash
+curl http://localhost:9090/metrics
+```
+
+Or add a Prometheus scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: object-storage-proxy
+    static_configs:
+      - targets: ["localhost:9090"]
+```
+
+Exposed metrics (all prefixed `osp_`):
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `osp_requests_total` | Counter | `method`, `bucket`, `status` | Total proxied requests |
+| `osp_request_errors_total` | Counter | `method`, `bucket`, `error` | 4xx / 5xx responses |
+| `osp_transfer_bytes_total` | Counter | `direction` (`rx`/`tx`), `bucket` | Bytes transferred |
+| `osp_presigned_url_hits_total` | Counter | `bucket` | Presigned URL uses |
+| `osp_presigned_url_rejected_total` | Counter | `bucket` | Presigned URLs rejected (over limit) |
+| `osp_active_connections` | Gauge | — | In-flight connections |
+| `osp_memory_bytes` | Gauge | — | Resident set size (Linux only) |
+| `osp_build_info` | Gauge | `version`, `rustc` | Static build metadata |
+| `osp_request_duration_seconds` | Histogram | `method`, `bucket` | End-to-end request latency |
+| `osp_response_size_bytes` | Histogram | `method`, `bucket` | Response body size |
+
+To build without the metrics endpoint:
+
+```bash
+maturin develop --no-default-features
 ```
 
 ## HTTPS setup

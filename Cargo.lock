@@ -1672,7 +1672,7 @@ dependencies = [
 
 [[package]]
 name = "object-storage-proxy"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "async-trait",
  "base64",
@@ -1683,9 +1683,11 @@ dependencies = [
  "hex",
  "http",
  "nom 8.0.0",
+ "once_cell",
  "openssl",
  "percent-encoding",
  "pingora",
+ "prometheus",
  "pyo3",
  "regex",
  "reqwest",

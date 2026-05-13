@@ -8,5 +8,7 @@
 
 pub mod banner;
 pub mod functions;
+#[cfg(feature = "metrics")]
+pub mod metrics;
 pub mod response;
 pub mod validator;

@@ -15,6 +15,7 @@ class ProxyServerConfig:
     hmac_fetcher: Optional[Callable[[str], Optional[str]]]
     max_presign_url_usage_attempts: Optional[int]
     server_name: str
+    metrics_port: Optional[int]
 
     def __init__(
         self,
@@ -31,6 +32,7 @@ class ProxyServerConfig:
         hmac_fetcher: Optional[Callable[[str], Optional[str]]] = None,
         max_presign_url_usage_attempts: Optional[int] = 3,
         server_name: str = "osp",
+        metrics_port: Optional[int] = None,
     ) -> None: ...
     def __repr__(self) -> str: ...
 
