@@ -87,14 +87,19 @@ jobs:
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          # Use system OpenSSL instead of building from source (avoids perl IPC::Cmd / Time::Piece issues).
+          # OPENSSL_STATIC=1 statically links OpenSSL into the wheel so end users need nothing installed.
+          OPENSSL_NO_VENDOR: "1"
+          OPENSSL_STATIC: "1"
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
           before-script-linux: |
-            # openssl-src's Configure requires IPC::Cmd which is missing from the manylinux image.
-            yum install -y perl-IPC-Cmd || true
+            # Install system OpenSSL dev headers so openssl-sys can link against them.
+            yum install -y openssl-devel perl-IPC-Cmd perl-Time-Piece || true
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
