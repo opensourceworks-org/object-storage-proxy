@@ -88,9 +88,9 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         env:
-          # Use system OpenSSL instead of building from source (avoids perl IPC::Cmd / Time::Piece issues).
-          # OPENSSL_STATIC=1 statically links OpenSSL into the wheel so end users need nothing installed.
-          OPENSSL_NO_VENDOR: "1"
+          # OPENSSL_STATIC=1: statically link OpenSSL into the wheel — no runtime dependency for users.
+          # openssl-src builds OpenSSL from source (fully vendored); perl-core in before-script provides
+          # the perl modules (IPC::Cmd, Time::Piece, etc.) that openssl-src's Configure script requires.
           OPENSSL_STATIC: "1"
         with:
           target: ${{ matrix.platform.target }}
@@ -98,8 +98,9 @@ jobs:
           sccache: 'true'
           manylinux: auto
           before-script-linux: |
-            # Install system OpenSSL dev headers so openssl-sys can link against them.
-            yum install -y openssl-devel perl-IPC-Cmd perl-Time-Piece || true
+            # perl-core provides the full perl stdlib (IPC::Cmd, Time::Piece, etc.) required by
+            # openssl-src's Configure script when building OpenSSL from source.
+            yum install -y perl-core
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
