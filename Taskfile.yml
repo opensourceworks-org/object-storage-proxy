@@ -49,6 +49,33 @@ tasks:
     cmds:
       - git cliff --config cliff.toml {{.CLI_ARGS}}
 
+  # ── release ────────────────────────────────────────────────────────────────
+  # Usage: bump version in Cargo.toml, then run `task release`
+
+  release:
+    desc: "Read version from Cargo.toml, update CHANGELOG, commit, and tag"
+    cmds:
+      - |
+        VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "//;s/"//')
+        TAG="v${VERSION}"
+        echo "Releasing ${TAG}"
+
+        # 1. Regenerate CHANGELOG.md for the new tag
+        git cliff --config cliff.toml --tag "${TAG}" -o CHANGELOG.md
+
+        # 2. Stage and commit
+        git add Cargo.toml CHANGELOG.md
+        git diff --cached --quiet && echo "Nothing to commit" || \
+          git commit -m "chore: release ${TAG}"
+
+        # 3. Create the annotated tag
+        git tag -a "${TAG}" -m "Release ${TAG}"
+
+        # 4. Push commit and tag
+        git push
+        git push origin "${TAG}"
+        echo "✅ Released ${TAG}"
+
   # ── build ──────────────────────────────────────────────────────────────────
 
   build:

@@ -275,6 +275,34 @@ task changelog:tag -- v0.5.3..v0.5.4
 
 Configuration lives in [`cliff.toml`](cliff.toml).
 
+### Tagging a release
+
+`Cargo.toml` is the single source of truth for the version. The workflow is:
+
+1. Edit `version = "…"` in `Cargo.toml`.
+2. Run `task release`.
+
+```bash
+# 1. bump version in Cargo.toml, then:
+task release
+```
+
+What it does:
+
+1. Reads the version from `Cargo.toml`.
+2. Runs `git cliff --tag vX.Y.Z -o CHANGELOG.md` to regenerate the full changelog.
+3. Commits `Cargo.toml` and `CHANGELOG.md` with `chore: release vX.Y.Z`.
+3. Creates an annotated tag `vX.Y.Z`.
+4. Pushes the commit and tag.
+
+### GitHub Actions release workflow
+
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which:
+
+1. Installs `git-cliff` and regenerates `CHANGELOG.md` from the tag.
+2. Commits the updated changelog back to `main` (with `[skip ci]` to avoid loops).
+3. Creates a GitHub Release with the changelog as the release body.
+
 ---
 
 ## Integration testing
