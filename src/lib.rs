@@ -1169,8 +1169,7 @@ impl ProxyHttp for MyProxy {
 
     async fn response_filter(
         &self,
-        #[cfg_attr(not(feature = "metrics"), allow(unused_variables))]
-        session: &mut Session,
+        #[cfg_attr(not(feature = "metrics"), allow(unused_variables))] session: &mut Session,
         resp: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
     ) -> Result<()> {
@@ -1196,7 +1195,9 @@ impl ProxyHttp for MyProxy {
                     .with_label_values(&[method, bucket, status])
                     .inc();
             }
-            if let Some(cl) = resp.headers.get("content-length")
+            if let Some(cl) = resp
+                .headers
+                .get("content-length")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<i64>().ok())
             {

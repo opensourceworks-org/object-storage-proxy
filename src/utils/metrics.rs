@@ -16,8 +16,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, IntCounterVec,
-    IntGauge, Opts, Registry, TextEncoder,
+    Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, IntCounterVec, IntGauge, Opts, Registry,
+    TextEncoder,
 };
 
 /// The global Prometheus registry for all OSP metrics.
@@ -28,32 +28,35 @@ pub static REGISTRY: Lazy<Registry> = Lazy::new(|| Registry::new());
 /// Total number of proxied requests, labelled by HTTP method, bucket and
 /// upstream response status code.
 pub static REQUESTS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
-    let opts = Opts::new("osp_requests_total", "Total proxied requests")
-        .namespace("osp");
+    let opts = Opts::new("osp_requests_total", "Total proxied requests").namespace("osp");
     let counter = IntCounterVec::new(opts, &["method", "bucket", "status"])
         .expect("osp_requests_total metric created");
-    REGISTRY.register(Box::new(counter.clone())).expect("register");
+    REGISTRY
+        .register(Box::new(counter.clone()))
+        .expect("register");
     counter
 });
 
 /// Total number of requests that resulted in an error (4xx/5xx or internal).
 pub static REQUEST_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
-    let opts = Opts::new("osp_request_errors_total", "Total request errors")
-        .namespace("osp");
+    let opts = Opts::new("osp_request_errors_total", "Total request errors").namespace("osp");
     let counter = IntCounterVec::new(opts, &["method", "bucket", "error"])
         .expect("osp_request_errors_total metric created");
-    REGISTRY.register(Box::new(counter.clone())).expect("register");
+    REGISTRY
+        .register(Box::new(counter.clone()))
+        .expect("register");
     counter
 });
 
 /// Bytes transferred, labelled by direction (`rx` = client→proxy,
 /// `tx` = proxy→client) and bucket.
 pub static TRANSFER_BYTES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
-    let opts = Opts::new("osp_transfer_bytes_total", "Total bytes transferred")
-        .namespace("osp");
+    let opts = Opts::new("osp_transfer_bytes_total", "Total bytes transferred").namespace("osp");
     let counter = IntCounterVec::new(opts, &["direction", "bucket"])
         .expect("osp_transfer_bytes_total metric created");
-    REGISTRY.register(Box::new(counter.clone())).expect("register");
+    REGISTRY
+        .register(Box::new(counter.clone()))
+        .expect("register");
     counter
 });
 
@@ -64,9 +67,11 @@ pub static PRESIGNED_URL_HITS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
         "Total presigned URL requests",
     )
     .namespace("osp");
-    let counter = IntCounterVec::new(opts, &["bucket"])
-        .expect("osp_presigned_url_hits_total metric created");
-    REGISTRY.register(Box::new(counter.clone())).expect("register");
+    let counter =
+        IntCounterVec::new(opts, &["bucket"]).expect("osp_presigned_url_hits_total metric created");
+    REGISTRY
+        .register(Box::new(counter.clone()))
+        .expect("register");
     counter
 });
 
@@ -79,7 +84,9 @@ pub static PRESIGNED_URL_REJECTED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .namespace("osp");
     let counter = IntCounterVec::new(opts, &["bucket"])
         .expect("osp_presigned_url_rejected_total metric created");
-    REGISTRY.register(Box::new(counter.clone())).expect("register");
+    REGISTRY
+        .register(Box::new(counter.clone()))
+        .expect("register");
     counter
 });
 
@@ -87,29 +94,31 @@ pub static PRESIGNED_URL_REJECTED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
 
 /// Number of currently active (in-flight) connections.
 pub static ACTIVE_CONNECTIONS: Lazy<IntGauge> = Lazy::new(|| {
-    let opts = Opts::new("osp_active_connections", "Current active connections")
-        .namespace("osp");
+    let opts = Opts::new("osp_active_connections", "Current active connections").namespace("osp");
     let gauge = IntGauge::with_opts(opts).expect("osp_active_connections metric created");
-    REGISTRY.register(Box::new(gauge.clone())).expect("register");
+    REGISTRY
+        .register(Box::new(gauge.clone()))
+        .expect("register");
     gauge
 });
 
 /// Resident Set Size in bytes (sampled at scrape time via [`update_memory_gauge`]).
 pub static MEMORY_BYTES: Lazy<Gauge> = Lazy::new(|| {
-    let opts = Opts::new("osp_memory_bytes", "Resident set size in bytes")
-        .namespace("osp");
+    let opts = Opts::new("osp_memory_bytes", "Resident set size in bytes").namespace("osp");
     let gauge = Gauge::with_opts(opts).expect("osp_memory_bytes metric created");
-    REGISTRY.register(Box::new(gauge.clone())).expect("register");
+    REGISTRY
+        .register(Box::new(gauge.clone()))
+        .expect("register");
     gauge
 });
 
 /// Static build-info gauge — always 1, used to expose version labels.
 pub static BUILD_INFO: Lazy<GaugeVec> = Lazy::new(|| {
-    let opts = Opts::new("osp_build_info", "Static build metadata (always 1)")
-        .namespace("osp");
-    let gauge = GaugeVec::new(opts, &["version", "rustc"])
-        .expect("osp_build_info metric created");
-    REGISTRY.register(Box::new(gauge.clone())).expect("register");
+    let opts = Opts::new("osp_build_info", "Static build metadata (always 1)").namespace("osp");
+    let gauge = GaugeVec::new(opts, &["version", "rustc"]).expect("osp_build_info metric created");
+    REGISTRY
+        .register(Box::new(gauge.clone()))
+        .expect("register");
     gauge
 });
 
@@ -134,14 +143,10 @@ pub static REQUEST_DURATION_SECONDS: Lazy<HistogramVec> = Lazy::new(|| {
 
 /// Response body size histogram (bytes), labelled by method and bucket.
 pub static RESPONSE_SIZE_BYTES: Lazy<HistogramVec> = Lazy::new(|| {
-    let buckets = prometheus::exponential_buckets(1024.0, 4.0, 10)
-        .expect("valid bucket spec");
-    let opts = HistogramOpts::new(
-        "osp_response_size_bytes",
-        "Response body size in bytes",
-    )
-    .namespace("osp")
-    .buckets(buckets);
+    let buckets = prometheus::exponential_buckets(1024.0, 4.0, 10).expect("valid bucket spec");
+    let opts = HistogramOpts::new("osp_response_size_bytes", "Response body size in bytes")
+        .namespace("osp")
+        .buckets(buckets);
     let hist = HistogramVec::new(opts, &["method", "bucket"])
         .expect("osp_response_size_bytes metric created");
     REGISTRY.register(Box::new(hist.clone())).expect("register");
