@@ -37,6 +37,8 @@ jobs:
       - name: Setup Rust
         uses: PyO3/maturin-action@v1
       - name: Run cargo tests
+        env:
+          AWS_LC_SYS_NO_ASM: "1"
         run: cargo test --all-features
 
   test_python:
@@ -52,6 +54,8 @@ jobs:
         uses: astral-sh/setup-uv@v5
       - name: Build and install extension
         uses: PyO3/maturin-action@v1
+        env:
+          AWS_LC_SYS_NO_ASM: "1"
         with:
           args: --out dist --find-interpreter
       - name: Install wheel and test deps
