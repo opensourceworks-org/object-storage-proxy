@@ -180,3 +180,30 @@ def aws_env(env: dict[str, str], tmp_path_factory) -> dict[str, str]:
         }
     )
     return base
+
+
+# ── SparkSession ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="session")
+def spark_session(env: dict[str, str]):
+    """
+    A session-scoped SparkSession wired to the OSP proxy via s3a.
+
+    Spark is slow to start (~20-40 s on first run while Ivy downloads
+    hadoop-aws), so we share one session across all spark tests.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from spark import build_spark_session  # noqa: PLC0415
+
+    proxy_endpoint = f"http://{env['OSP_PROXY_HOST']}:{env['OSP_PROXY_PORT']}"
+    spark = build_spark_session(
+        access_key=env["OSP_CLIENT_ACCESS_KEY"],
+        secret_key=env["OSP_CLIENT_SECRET_KEY"],
+        endpoint=proxy_endpoint,
+        region=env.get("GARAGE_REGION", "garage"),
+    )
+    yield spark
+    spark.stop()

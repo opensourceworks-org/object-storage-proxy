@@ -167,8 +167,14 @@ tasks:
     dir: integration/test_server
     cmds:
       - docker compose up -d
-      - echo "Garage starting — waiting for health check …"
-      - docker compose wait garage || true
+      - echo "Garage starting — waiting for healthy status …"
+      - |
+        for i in $(seq 1 30); do
+          status=$(docker inspect --format='{{.State.Health.Status}}' osp-garage 2>/dev/null)
+          if [ "$status" = "healthy" ]; then echo "Garage is healthy"; exit 0; fi
+          echo "  waiting… ($i/30) status=$status"; sleep 2
+        done
+        echo "Garage did not become healthy in time" >&2; exit 1
 
   integration:garage:down:
     desc: "Stop and remove the Garage container"

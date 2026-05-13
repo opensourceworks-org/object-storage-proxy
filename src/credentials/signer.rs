@@ -240,16 +240,24 @@ where
 
     /// Return the canonicalized header string for inclusion in the canonical request.
     ///
-    /// Headers are sorted lexicographically and each entry is formatted as
+    /// Headers are sorted lexicographically by name and each entry is formatted as
     /// `lowercase-name:trimmed-value\n`.
+    ///
+    /// IMPORTANT: Sort must be by key name only, not by the full `key:value` string.
+    /// Otherwise `x-amz-copy-source-if-match` would sort before `x-amz-copy-source`
+    /// because `-` (ASCII 45) < `:` (ASCII 58).
     pub fn canonical_header_string(&'a self) -> String {
-        let mut keyvalues = self
+        let mut keyvalues: Vec<(String, &str)> = self
             .headers
             .into_iter()
-            .map(|(key, value)| key.to_lowercase() + ":" + value.trim())
-            .collect::<Vec<String>>();
-        keyvalues.sort();
-        keyvalues.join("\n")
+            .map(|(key, value)| (key.to_lowercase(), value.trim()))
+            .collect();
+        keyvalues.sort_by(|a, b| a.0.cmp(&b.0));
+        keyvalues
+            .into_iter()
+            .map(|(key, value)| format!("{}:{}", key, value))
+            .collect::<Vec<String>>()
+            .join("\n")
     }
 
     /// Return the semicolon-separated list of signed header names (lowercase, sorted).
@@ -559,6 +567,8 @@ async fn signature_is_valid_core(
         signer.set_payload_override(ov);
     }
 
+    let canonical = signer.canonical_request();
+    debug!("Canonical request:\n{}", canonical);
     let signature = signer.sign();
     let computed = signature.split("Signature=").nth(1).unwrap_or_default();
     debug!("Provided signature: {}", provided_signature);
@@ -1144,6 +1154,8 @@ pub struct StreamingState {
     ts: chrono::DateTime<chrono::Utc>,
     prior_sig: String,
     signing_key: Vec<u8>,
+    /// Buffer for incomplete incoming aws-chunked frames across body filter calls.
+    pub decode_buf: BytesMut,
 }
 
 impl StreamingState {
@@ -1164,6 +1176,7 @@ impl StreamingState {
             ts,
             prior_sig: seed_signature,
             signing_key,
+            decode_buf: BytesMut::new(),
         }
     }
 
@@ -1234,6 +1247,29 @@ fn compute_chunk_signature(
     let key = hmac::Key::new(hmac::HMAC_SHA256, signing_key);
     let sig = hmac::sign(&key, string_to_sign.as_bytes());
     Ok(hex::encode(sig.as_ref()))
+}
+
+/// Parse one aws-chunked frame header from `buf`.
+///
+/// The aws-chunked format is:
+/// ```text
+/// <hex-payload-size>;chunk-signature=<sig>\r\n<payload>\r\n
+/// ```
+///
+/// Returns `Some((header_len, payload_len))` when a complete header is
+/// available, or `None` if more data is needed.
+///
+/// `header_len` is the number of bytes occupied by the header line
+/// (including the trailing `\r\n`).  `payload_len` is the number of
+/// payload bytes that follow.
+pub fn parse_aws_chunk_header(buf: &[u8]) -> Option<(usize, usize)> {
+    // Find the end of the first line (\r\n).
+    let crlf = buf.windows(2).position(|w| w == b"\r\n")?;
+    let header = std::str::from_utf8(&buf[..crlf]).ok()?;
+    // The first token before ';' is the hex payload size.
+    let hex_size = header.split(';').next()?;
+    let payload_len = usize::from_str_radix(hex_size.trim(), 16).ok()?;
+    Some((crlf + 2, payload_len))
 }
 
 /// Wrap a signed payload frame into the final on‑the‑wire representation.

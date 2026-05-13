@@ -1271,14 +1271,38 @@ impl ProxyHttp for MyProxy {
             return Ok(());
         };
 
-        // 2. Build the outgoing buffer
+        // 2. Build the outgoing buffer.
+        //    The incoming body already has the client's aws-chunked framing:
+        //      <hex-size>;chunk-signature=<sig>\r\n<payload>\r\n
+        //    We must strip that framing, extract the raw payload bytes, and
+        //    then re-sign/re-frame for the Garage backend.
         let mut out = BytesMut::new();
-        if !payload.is_empty() {
-            out.extend_from_slice(&state.sign_chunk(&payload).map_err(|e| {
+        state.decode_buf.extend_from_slice(&payload);
+
+        while let Some((header_len, payload_len)) =
+            signer::parse_aws_chunk_header(&state.decode_buf)
+        {
+            // total bytes needed: header + payload + trailing \r\n
+            let total = header_len + payload_len + 2;
+            if state.decode_buf.len() < total {
+                // wait for more data
+                break;
+            }
+            let raw_payload = state.decode_buf[header_len..header_len + payload_len].to_vec();
+            use bytes::Buf;
+            state.decode_buf.advance(total);
+
+            if payload_len == 0 {
+                // This is the client's terminal empty chunk — skip it.
+                // We will emit our own terminal chunk below when end_of_stream.
+                break;
+            }
+            out.extend_from_slice(&state.sign_chunk(&raw_payload).map_err(|e| {
                 error!("Failed to sign chunk: {e}");
                 pingora::Error::new_str("Failed to sign chunk")
             })?);
         }
+
         if end_of_stream {
             out.extend_from_slice(&state.final_chunk().map_err(|e| {
                 error!("Failed to sign trailer: {e}");

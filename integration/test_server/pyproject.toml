@@ -10,12 +10,16 @@ dependencies = [
     "requests>=2.31",
     "pytest>=8.0",
     "pytest-timeout>=2.3",
+    "pyspark>=4.1.1",
 ]
 
 [tool.pytest.ini_options]
-timeout = 30
+timeout = 120
 addopts = "-v --tb=short"
 testpaths = ["tests"]
+markers = [
+    "spark: marks tests that require a running SparkSession (slower)",
+]
 
 [tool.uv]
 # Keep this project's venv independent from the root workspace venv.
