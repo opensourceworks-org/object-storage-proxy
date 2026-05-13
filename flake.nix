@@ -58,6 +58,9 @@
             OPENSSL_DIR = "${pkgs.openssl.dev}";
             OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
             OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
+            # Needed for compiled Python extensions (e.g. pyzmq) that link against
+            # libstdc++.so.6 — on NixOS this is not on the default search path.
+            LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
           };
 
           shellHook = ''

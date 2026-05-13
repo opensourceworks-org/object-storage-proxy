@@ -50,6 +50,9 @@ def build_spark_session(
         .config("spark.hadoop.fs.s3a.endpoint.region", region)
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        # Parquet calls hsync/hflush (Syncable API); S3A doesn't support them.
+        # Downgrade to no-ops instead of warning/throwing.
+        .config("spark.hadoop.fs.s3a.downgrade.syncable.exceptions", "true")
         # Avoid noisy Spark UI on ephemeral test runs
         .config("spark.ui.enabled", "false")
         .getOrCreate()

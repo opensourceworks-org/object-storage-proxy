@@ -170,7 +170,7 @@ tasks:
       - echo "Garage starting — waiting for healthy status …"
       - |
         for i in $(seq 1 30); do
-          status=$(docker inspect --format='{{.State.Health.Status}}' osp-garage 2>/dev/null)
+          status=$(docker inspect --format='{{"{{"}}{{".State.Health.Status"}}{{"}}"}}' osp-garage 2>/dev/null)
           if [ "$status" = "healthy" ]; then echo "Garage is healthy"; exit 0; fi
           echo "  waiting… ($i/30) status=$status"; sleep 2
         done
@@ -213,8 +213,8 @@ tasks:
       - |
         nohup uv run --no-sync python integration/test_server/server.py \
           > integration/test_server/proxy.log 2>&1 &
-        echo $! > integration/test_server/.proxy.pid
         sleep 2
+        pgrep -f "server\.py" | head -1 > integration/test_server/.proxy.pid
         if kill -0 $(cat integration/test_server/.proxy.pid) 2>/dev/null; then
           echo "✅ Proxy started (PID=$(cat integration/test_server/.proxy.pid))"
           echo "   logs: integration/test_server/proxy.log"
