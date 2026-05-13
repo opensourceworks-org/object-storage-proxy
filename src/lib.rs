@@ -208,6 +208,13 @@ pub struct ProxyServerConfig {
 
     #[pyo3(get, set)]
     pub server_name: String,
+
+    /// Port to expose the Prometheus `/metrics` scrape endpoint on.
+    ///
+    /// Only effective when the `metrics` Cargo feature is enabled.
+    /// When `None` (the default) no metrics endpoint is started.
+    #[pyo3(get, set)]
+    pub metrics_port: Option<u16>,
 }
 
 impl Default for ProxyServerConfig {
@@ -225,6 +232,7 @@ impl Default for ProxyServerConfig {
             hmac_fetcher: None,
             max_presign_url_usage_attempts: Some(3),
             server_name: "<osp⚡>".to_string(),
+            metrics_port: None,
         }
     }
 }
@@ -246,6 +254,7 @@ impl ProxyServerConfig {
             hmac_fetcher = None,
             max_presign_url_usage_attempts = Some(3),
             server_name = "<osp⚡>".to_string(),
+            metrics_port = None,
         )
     )]
     #[allow(clippy::too_many_arguments)]
@@ -262,6 +271,7 @@ impl ProxyServerConfig {
         hmac_fetcher: Option<PyObject>,
         max_presign_url_usage_attempts: Option<usize>,
         server_name: String,
+        metrics_port: Option<u16>,
     ) -> Self {
         ProxyServerConfig {
             cos_map,
@@ -276,6 +286,7 @@ impl ProxyServerConfig {
             hmac_fetcher,
             max_presign_url_usage_attempts,
             server_name,
+            metrics_port,
         }
     }
 
@@ -365,6 +376,8 @@ impl ProxyHttp for MyProxy {
         ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
         debug!("upstream_peer::start");
+        #[cfg(feature = "metrics")]
+        utils::metrics::ACTIVE_CONNECTIONS.inc();
         if REQ_COUNTER_ENABLED.load(Ordering::Relaxed) {
             let new_val = REQ_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
             debug!("Request count: {}", new_val);
@@ -445,6 +458,17 @@ impl ProxyHttp for MyProxy {
         Ok(peer)
     }
 
+    async fn logging(
+        &self,
+        _session: &mut Session,
+        _e: Option<&pingora::Error>,
+        ctx: &mut Self::CTX,
+    ) {
+        #[cfg(feature = "metrics")]
+        utils::metrics::ACTIVE_CONNECTIONS.dec();
+        let _ = ctx;
+    }
+
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         debug!("request_filter::start");
 
@@ -464,6 +488,19 @@ impl ProxyHttp for MyProxy {
         }
         let tracked_count = self.tracker.get(&url).unwrap_or(0);
         if is_presigned_url && tracked_count > self.max_presign_url_usage_attempts.unwrap_or(3) {
+            #[cfg(feature = "metrics")]
+            {
+                let bucket_label = session
+                    .req_header()
+                    .uri
+                    .path()
+                    .split('/')
+                    .nth(1)
+                    .unwrap_or("-");
+                utils::metrics::PRESIGNED_URL_REJECTED_TOTAL
+                    .with_label_values(&[bucket_label])
+                    .inc();
+            }
             warn!(
                 url,
                 tracked_count,
@@ -561,6 +598,19 @@ impl ProxyHttp for MyProxy {
         let (_, (bucket, _uri_path)) = parse_path_result.expect("checked above");
 
         let hdr_bucket = bucket.to_owned();
+
+        #[cfg(feature = "metrics")]
+        {
+            let method_label = session.req_header().method.as_str();
+            utils::metrics::REQUESTS_TOTAL
+                .with_label_values(&[method_label, &hdr_bucket, "received"])
+                .inc();
+            if is_presigned_url {
+                utils::metrics::PRESIGNED_URL_HITS_TOTAL
+                    .with_label_values(&[&hdr_bucket])
+                    .inc();
+            }
+        }
 
         let auth_header = session
             .req_header()
@@ -1119,13 +1169,46 @@ impl ProxyHttp for MyProxy {
 
     async fn response_filter(
         &self,
-        _session: &mut Session,
+        #[cfg_attr(not(feature = "metrics"), allow(unused_variables))] session: &mut Session,
         resp: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
     ) -> Result<()> {
         let _ = resp.remove_header("Server");
-
         let _ = resp.insert_header("Server", DEFAULT_SERVER_NAME);
+
+        #[cfg(feature = "metrics")]
+        {
+            let status = resp.status.as_str();
+            let method = session.req_header().method.as_str();
+            let bucket = session
+                .req_header()
+                .uri
+                .path()
+                .split('/')
+                .nth(1)
+                .unwrap_or("-");
+            utils::metrics::REQUESTS_TOTAL
+                .with_label_values(&[method, bucket, status])
+                .inc();
+            if resp.status.is_client_error() || resp.status.is_server_error() {
+                utils::metrics::REQUEST_ERRORS_TOTAL
+                    .with_label_values(&[method, bucket, status])
+                    .inc();
+            }
+            if let Some(cl) = resp
+                .headers
+                .get("content-length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<i64>().ok())
+            {
+                utils::metrics::TRANSFER_BYTES_TOTAL
+                    .with_label_values(&["tx", bucket])
+                    .inc_by(cl as u64);
+                utils::metrics::RESPONSE_SIZE_BYTES
+                    .with_label_values(&[method, bucket])
+                    .observe(cl as f64);
+            }
+        }
 
         Ok(())
     }
@@ -1137,7 +1220,24 @@ impl ProxyHttp for MyProxy {
         end_of_stream: bool,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
-        // 0. Only active when we stashed a StreamingState in the request filter
+        // 0. Track inbound bytes regardless of streaming state
+        #[cfg(feature = "metrics")]
+        if let Some(payload) = body.as_ref()
+            && !payload.is_empty()
+        {
+            let bucket = _session
+                .req_header()
+                .uri
+                .path()
+                .split('/')
+                .nth(1)
+                .unwrap_or("-");
+            utils::metrics::TRANSFER_BYTES_TOTAL
+                .with_label_values(&["rx", bucket])
+                .inc_by(payload.len() as u64);
+        }
+
+        // 1. Only active when we stashed a StreamingState in the request filter
         let Some(state) = ctx.stream_state.as_mut() else {
             return Ok(());
         };
@@ -1202,6 +1302,24 @@ pub fn init_tracing() {
 pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     print_banner();
     init_tracing();
+
+    #[cfg(feature = "metrics")]
+    {
+        utils::metrics::init_metrics();
+        if let Some(port) = run_args.metrics_port {
+            // Spawn the metrics HTTP server on a background Tokio task.
+            // `tokio::spawn` requires an active runtime; Pingora sets one up
+            // during `my_server.bootstrap()` but we need a runtime here
+            // before bootstrap, so we use a standalone one.
+            std::thread::spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("metrics runtime")
+                    .block_on(utils::metrics::serve_metrics(port));
+            });
+        }
+    }
 
     if run_args.http_port.is_none() && run_args.https_port.is_none() {
         error!("At least one of http_port or https_port must be specified!");

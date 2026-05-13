@@ -1,6 +1,6 @@
 [package]
 name = "object-storage-proxy"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2024"
 description = "A fast in-process reverse proxy for AWS S3 and IBM COS with a Python interface for auth and credential management."
 license = "MIT"
@@ -10,8 +10,14 @@ readme = "README.md"
 keywords = ["s3", "proxy", "object-storage", "ibm-cos", "pingora"]
 categories = ["network-programming", "web-programming::http-server"]
 
+[features]
+default = ["metrics"]
+metrics = ["dep:prometheus", "dep:once_cell"]
+
 [dependencies]
 async-trait = "0.1.89"
+once_cell = { version = "1", optional = true }
+prometheus = { version = "0.13", default-features = false, optional = true }
 pingora = { version = "0.8.0", features = ["proxy", "rustls"] }
 http = "1.4.0"
 serde_json = "1.0.149"
