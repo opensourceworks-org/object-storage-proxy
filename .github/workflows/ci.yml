@@ -107,9 +107,10 @@ jobs:
           sccache: 'true'
           manylinux: auto
           before-script-linux: |
-            # Install aarch64 cross-compiler inside the manylinux container
+            # Install aarch64 cross-compiler + cross libc headers inside the manylinux container.
+            # libc6-dev-arm64-cross provides stdatomic.h for the cross target, required by aws-lc-sys.
             if command -v apt-get &> /dev/null; then
-                apt-get update -y && apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+                apt-get update -y && apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
             fi
             # If we're running on rhel/centos, install needed packages.
             if command -v yum &> /dev/null; then
