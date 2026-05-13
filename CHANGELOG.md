@@ -5,75 +5,435 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-## [0.5.3] - 2026-05-13
+## [0.5.5] - 2026-05-13
 
 ### Added
-- **Prometheus metrics** — built-in `/metrics` scrape endpoint, on by default (disable with `--no-default-features`).
-  - New `metrics_port: Option<u16>` field on `ProxyServerConfig`; when set, a lightweight Tokio HTTP listener serves `/metrics` on that port.
-  - Metrics: `osp_requests_total`, `osp_request_errors_total`, `osp_transfer_bytes_total`, `osp_presigned_url_hits_total`, `osp_presigned_url_rejected_total`, `osp_active_connections`, `osp_memory_bytes`, `osp_build_info`, `osp_request_duration_seconds`, `osp_response_size_bytes`.
-  - Memory gauge reads `/proc/self/status` (Linux); no-op on other platforms.
-- `flake.nix` for reproducible Rust + Python development environment via Nix.
-- `Taskfile.yml` with tasks for build, run, test, lint, and clean.
-- `BUILD.md` with detailed build and run instructions.
-- `CONTRIBUTING.md`, `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`.
-- GitHub issue templates and pull request template.
-- `.env.example` documenting all required environment variables.
+- Add base prometheus metrics
 
-### Changed
-- `prometheus` and `once_cell` are now gated behind the `metrics` Cargo feature (enabled by default).
-- Fixed `pyproject.toml` license classifier from Proprietary to MIT.
-- Added `license`, `homepage`, `repository`, and `description` to `Cargo.toml`.
-- Updated `object_storage_proxy.pyi` stub with all `ProxyServerConfig` parameters.
-- Commented out broken `[tool.uv.workspace]` entry (integration/ has no pyproject.toml).
+- Restrict presigned url usage (tracking/blocking)
+
+- It works
+
+- Send client request details to python validation callable
+
+- Allow path style backends
+
+- Http backends (ie. minio)
+
+- Upgrade to pingora 0.5.0
+
+- Add query parser, we want to pass request to python callbacks for more context
+
+- Add integration
+
+- Spark streaming support
+
+- Upload performance
+
+- Add support for presigned urls
+
+- Adding presigned url support
+
+- Frontend request signature validation
+
+- Drop x- headers for signing request
+
+- Https and http listeners are optional
+
+- Pass in token to python callables
+
+- Working hmac + redact secret_key in debug level for AwsSign struct
+
+- Hmac auth
+
+- Make threads configurable
+
+- Add configurable request counting and only call api_key fetcher once
+
+- Optimize build
+
+- Https frontend
+
+- Earlier exit if no api key
+
+- Working version
+
+- Cos_map is dict
+
+- Validate with cache
+
+
+### CI
+- Auto release
+
+- Add git cliff (changelog)
+
+- Add git precommit
+
+- Fix aarch64 cross-compiler setup for linux build
+
+- Add linux aarch64 build target
+
+- Drop macos-13 x86_64 runner
+
+- Version bump
+
+- Update ci.yml
+
+- Gcc-aarch64-linux-gnu
+
+- Install gcc
+
+- Run it
+
+- Arm install
+
+- Arming
+
+- More arm
+
+- Arm
+
+- Try windows
+
+- Pathelf for python
+
+- Patchelf
+
+- Add cmake
+
+- Musl ln
+
+- Gcc
+
+- Musl typo
+
+- Add musl tools
+
+- Override homes
+
+- Override home
+
+- Home override
+
+- Musl;
+
+- Manual musl
+
+- More musl
+
+- Musl
+
+- Musllinux
+
+- Mac arm64 release
+
+- Mac aarch64
+
+- Typo
+
+- Test runner
+
+- Badges
+
+- Publish
+
+- And drop windows
+
+- Drop musl more
+
+- Drop musl
+
+- Dmn
+
+- Docker options
+
+- Env
+
+- Env
+
+- Set musl openssl location
+
+- O now
+
+- Musl
+
+- Drop aarch64
+
+- Chore
+
+- Env aarch64
+
+- Versions
+
+- All lnx
+
+- Lnx
+
+- Cpan
+
+- Add fi
+
+- Yum or apt
+
+- Jj
+
+- Still
+
+- Back to ci
+
+- Disable actions
+
+- Python
+
+- Still
+
+- Apt
+
+- Apt not yum
+
+- Openssl, of course
+
+- Enving
+
+- Perl
+
+- More perl
+
+- Perl deps
+
+- Vendor openssl
+
+- Maturin generated ci
+
+- Diable sccache
+
+- Init
+
+
+### Chores
+- Upgrade reqwest
+
+- Upgrade all dependencies (pingora 0.5→0.8, keep pyo3 0.25/reqwest 0.12)
+
+- Prep open
+
+- Update
+
+- Dependencies update
+
+- Vendor openssl for aarch64 builds
+
+- Reuse error response with server, code and message
+
+- License
+
+- Bump version
+
+- Debug
+
+- Bump version
+
+- Update dependencies
+
+- Cleanup
+
+- Add query to python callbacks
+
+- No jars
+
+- Breaking changes
+
+- Bump version
+
+- More amz headers
+
+- Version bump
+
+- Always override payload
+
+- Add conent-encoding header
+
+- Version bump
+
+- Reduce verbosity and move per-request info to debug
+
+- Version bump
+
+- License
+
+- Add musl
+
+- Bump version
+
+- Add license
+
+- Create LICENSE
+
+- Upgrade dependency versions
+
+- Version bump
+
+- Badges
+
+- Version bump
+
+- Version bump
+
+- Version bump
+
+- Reorganize
+
+- Bump version
+
+- Cleanup
+
+- Drop obsolete instance
+
+- Openssl-probe
+
+- Add vendored openssl
+
+- Pkg-config
+
+- Back to rustls
+
+- Fix openssl
+
+- Dmn
+
+- Drop apt
+
+- Out with openssl, in with rustls
+
+- Rollback vendored
+
+- Add the perl dependencies
+
+- Move to opensourceworks-org
+
+
+### Documentation
+- Few fixes, upgrades, update doc
+
+- Add build targets section to README
+
+- Update README and example code
+
+- Update pyproject links
+
+- Update
+
+- Add tasks
+
+- Update docstrings
+
+- Update readme
+
+- Update readme
+
+- Request stages flow
+
+- Update for hmac
+
+- Update for hmac
+
+- Update readme
+
+- Update readme
+
+- Update readme example
+
+- Link update
+
+- Update readme
+
+- Features
+
+- Update
+
+- README.md
+
+- README.md
+
 
 ### Fixed
-- Unused import compiler warnings resolved via `cargo fix`.
-- CI: aarch64 Linux builds now use native `ubuntu-22.04-arm` runner (removes cross-compilation).
-- CI: `perl-core` + `OPENSSL_STATIC=1` for fully self-contained wheels on manylinux.
-- NixOS stale `.so` workaround: `task build` uses `cargo build` + `cp` instead of `maturin develop`.
+- **ci**: Linting
 
-## [0.4.3] - 2025-04-19
+- Correct both remaining errors (clippy fmt)
 
-### Added
-- Configurable `max_presign_url_usage_attempts` for presigned URL access control.
-- `server_name` field on `ProxyServerConfig`.
-- `hmac_fetcher` callable for dynamic secret key lookup by access key.
+- Correct linting errors
 
-### Changed
-- Migrated from `pingora 0.4` (OpenSSL) to `pingora 0.5` (rustls).
-- Switched from `openssl` to `rustls` + `aws-lc-rs` throughout.
+- **ci**: Fix perl deps
 
-## [0.4.0] - 2025-03-01
+- **ci**: Linking against system openssl instead
 
-### Added
-- Configurable request counting (`enable_request_counting`, `disable_request_counting`, `get_request_count`).
-- `skip_signature_validation` option for development use.
-- `verify` option to disable upstream TLS certificate verification.
-- `hmac_keystore` support for multi-credential HMAC key management.
+- **ci**: Missing deps for aarch64
 
-### Changed
-- `ProxyServerConfig` now accepts `hmac_keystore` as a list of access/secret key dicts.
+- **ci**: Aarch64 - native compiler
 
-## [0.3.0] - 2025-01-15
+- **ci**: Aarch64 install cross-compiler
 
-### Added
-- Python callable for authorization (`validator`).
-- TTL-based authorization cache.
-- HTTP/2 support on the HTTPS frontend.
+- **ci**: Dependency issues from migration to pingora 0.8.0 and rustls defaults
 
-## [0.2.0] - 2024-11-01
+- **ci**: Breaking on aws-lc-rs
 
-### Added
-- Python callable for credential fetching (`bucket_creds_fetcher`).
-- IBM COS IAM bearer token cache with configurable TTL.
-- Path-style to virtual-style address translation.
+- **tests**: Add and fix tests
 
-## [0.1.0] - 2024-09-01
+- **bugs**: Resovle all clippy warnings
 
-### Added
-- Initial release.
-- Pingora-based reverse proxy for AWS S3 and IBM Cloud Object Storage.
-- AWS SigV4 request re-signing.
-- `ProxyServerConfig` Python class with `cos_map`, `http_port`, `https_port`, `threads`.
+- Remove wrap() in critical paths
+
+- **style**: Align trace/logging
+
+- Tests
+
+- Unwrap on fallible result
+
+- Working ssl
+
+- The right credentials and region
+
+- Uploads post awscli 2.23.0
+
+- Fast streaming uploads
+
+- Access_key dropped
+
+- Track header range
+
+- Response headers
+
+- Missing imports
+
+- Strip unwanted headers (proxy)
+
+- Sni with bucket prefix
+
+- Project github links
+
+- Force replace host header
+
+
+### Testing
+- Add  integration test environment and automated tests
+
+- Add more
+
+- Add integration tests
+
+- Add more
+
+- Update python test with hmac keys
+
+- Update comments
+
+
+### License
+- Update license
+
+
+### Style
+- Apply cargo fmt
+
+- Apply cargo fmt
