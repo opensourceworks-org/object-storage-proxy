@@ -10,7 +10,9 @@
 //!   `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` uploads.
 
 pub(crate) use chrono::{DateTime, NaiveDateTime, Utc};
+use dashmap::DashMap;
 use http::header::HeaderMap;
+use once_cell::sync::Lazy;
 use pingora::{http::RequestHeader, proxy::Session};
 use ring::hmac;
 use sha256::digest;
@@ -22,6 +24,28 @@ use tracing::{debug, error};
 use url::Url;
 
 use bytes::{BufMut, Bytes, BytesMut};
+
+// ── Performance TODOs ──────────────────────────────────────────────────────────
+// TODO(perf-2): Cache the resolved CosMapItem in MyCtx so upstream_peer does
+//   not acquire the cos_mapping RwLock a second time on every request.
+// TODO(perf-3): Replace the global Mutex<HashMap<key→Mutex>> in AuthCache with
+//   a DashMap so concurrent cache misses are not serialised on a single lock.
+// TODO(perf-4): Periodically sweep expired entries from AuthCache::inner to
+//   bound memory growth under long-running, high-cardinality workloads.
+// TODO(perf-5): Merge the three Python::with_gil clone_ref calls in new_ctx
+//   into a single GIL acquisition to reduce per-connection GIL contention.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Process-wide cache for derived SigV4 signing keys.
+///
+/// The signing key only changes once per calendar day (it is keyed on
+/// `date + region + service + secret`).  Caching it eliminates the four
+/// chained HMAC-SHA256 derivations that `signing_key()` would otherwise run
+/// on **every outgoing request**.
+///
+/// Key format: `"YYYYMMDD:{region}:{service}:{secret_key}"`
+/// Value: the 32-byte derived signing key.
+static SIGNING_KEY_CACHE: Lazy<DashMap<String, Vec<u8>>> = Lazy::new(DashMap::new);
 
 use crate::parsers::{
     cos_map::CosMapItem,
@@ -431,22 +455,33 @@ pub fn string_to_sign(
     )
 }
 
-/// Derive the SigV4 signing key.
+/// Derive (or return a cached copy of) the SigV4 signing key.
 ///
-/// Computes `HMAC(HMAC(HMAC(HMAC("AWS4" + secret, date), region), service), "aws4_request")`.
+/// Computes `HMAC(HMAC(HMAC(HMAC("AWS4" + secret, date), region), service), "aws4_request")`
+/// and stores the result in the process-wide [`SIGNING_KEY_CACHE`].  The cache
+/// entry is valid for the entire UTC calendar day; stale entries from previous
+/// days are evicted lazily on the first miss of the new day.
 pub fn signing_key(
     datetime: &DateTime<Utc>,
     secret_key: &str,
     region: &str,
     service: &str,
 ) -> Result<Vec<u8>, String> {
+    let date_str = datetime.format(SHORT_DATE).to_string();
+    // Use a compact key that avoids exposing the raw secret in logs or heap
+    // dumps while still being unique per (date, region, service, secret).
+    let cache_key = format!("{date_str}:{region}:{service}:{secret_key}");
+
+    if let Some(cached) = SIGNING_KEY_CACHE.get(&cache_key) {
+        debug!("signing_key cache hit");
+        return Ok(cached.clone());
+    }
+
+    debug!("signing_key cache miss — deriving key");
     let secret = String::from("AWS4") + secret_key;
 
     let date_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
-    let date_tag = ring::hmac::sign(
-        &date_key,
-        datetime.format(SHORT_DATE).to_string().as_bytes(),
-    );
+    let date_tag = ring::hmac::sign(&date_key, date_str.as_bytes());
 
     let region_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, date_tag.as_ref());
     let region_tag = ring::hmac::sign(&region_key, region.as_bytes());
@@ -454,9 +489,17 @@ pub fn signing_key(
     let service_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, region_tag.as_ref());
     let service_tag = ring::hmac::sign(&service_key, service.as_bytes());
 
-    let signing_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, service_tag.as_ref());
-    let signing_tag = ring::hmac::sign(&signing_key, b"aws4_request");
-    Ok(signing_tag.as_ref().to_vec())
+    let signing_key_val = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, service_tag.as_ref());
+    let signing_tag = ring::hmac::sign(&signing_key_val, b"aws4_request");
+    let derived = signing_tag.as_ref().to_vec();
+
+    // Evict any stale entries from previous days before inserting the new one.
+    // In practice there is at most one entry per (region, service, secret)
+    // combination, so this scan is O(number of unique backends) — tiny.
+    SIGNING_KEY_CACHE.retain(|k, _| k.starts_with(&date_str));
+    SIGNING_KEY_CACHE.insert(cache_key, derived.clone());
+
+    Ok(derived)
 }
 
 /// Sign the request with the AWS V4 signature
