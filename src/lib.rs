@@ -1498,6 +1498,18 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         Python::with_gil(|py| utils::functions::callable_accepts_request(py, v).unwrap_or(false))
     });
 
+    let auth_cache_instance = AuthCache::new();
+
+    let auth_cache_for_sweep = auth_cache_instance.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            auth_cache_for_sweep.sweep();
+            debug!("AuthCache sweep complete");
+        }
+    });
+
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,
         MyProxy {
@@ -1505,7 +1517,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
             cos_mapping: Arc::clone(&cosmap),
             hmac_keystore: Arc::clone(&hmac_keystore),
             secrets_cache: SecretsCache::new(),
-            auth_cache: AuthCache::new(),
+            auth_cache: auth_cache_instance,
             validator,
             bucket_creds_fetcher: run_args
                 .bucket_creds_fetcher

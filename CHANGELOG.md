@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.7] - 2026-05-14
 
+### Added
+- Replace mutex<hashmap> with dashmap
+
+- Cached bucket config
+
+
+### Chores
+- First step cache
+
+
+### Documentation
+- Update CHANGELOG for v0.6.7 [skip ci]
+
+
+## [0.6.7] - 2026-05-14
+
 ### Chores
 - Release v0.6.7
 

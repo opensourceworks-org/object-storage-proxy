@@ -119,6 +119,33 @@ impl AuthCache {
         let mut map = self.inner.write().expect("lock poisoned");
         map.remove(key);
     }
+
+    /// Remove all expired entries from the decision cache and the per-key lock
+    /// map.  Call this periodically (e.g. from a background task) to bound
+    /// memory growth under long-running, high-cardinality workloads.
+    ///
+    /// TODO(perf-4): done — call `AuthCache::sweep` from a background task spawned
+    /// at server startup.  A sweep interval of ~60 s is sufficient for most
+    /// deployments; set it lower if TTLs are very short.
+    pub fn sweep(&self) {
+        let now = Instant::now();
+        {
+            let mut map = self.inner.write().expect("lock poisoned");
+            map.retain(|_, entry| entry.expires_at > now);
+        }
+        // Remove per-key locks whose decision entry has been evicted.
+        // An unlocked mutex means no validation is in flight for that key.
+        self.locks.retain(|key, lock| {
+            // Keep the lock if a validation is actively in progress (i.e. the
+            // mutex is currently held).  try_lock succeeds only when it is free.
+            let still_cached = {
+                let map = self.inner.read().expect("lock poisoned");
+                map.contains_key(key.as_str())
+            };
+            let in_flight = lock.try_lock().is_err();
+            still_cached || in_flight
+        });
+    }
 }
 
 /// Invoke the Python validator callback for a single request.
