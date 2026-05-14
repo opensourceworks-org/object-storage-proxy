@@ -15,3 +15,4 @@ integration/docker/jars/
 **/*.py[cod]
 target/
 libobject_storage_proxy.so
+.env.minio
