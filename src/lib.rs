@@ -336,6 +336,9 @@ pub struct MyCtx {
     hmac_fetcher: Option<PyObject>,
     is_presigned: Option<bool>,
     stream_state: Option<signer::StreamingState>,
+    /// Bucket name parsed from the request path in `request_filter`, reused by
+    /// later stages to avoid redundant `parse_path` calls and map lock acquires.
+    cached_bucket: Option<String>,
 }
 
 // impl MyCtx {
@@ -367,6 +370,7 @@ impl ProxyHttp for MyProxy {
                 .map(|v| Python::with_gil(|py| v.clone_ref(py))),
             is_presigned: None,
             stream_state: None,
+            cached_bucket: None,
         }
     }
 
@@ -383,17 +387,12 @@ impl ProxyHttp for MyProxy {
             debug!("Request count: {}", new_val);
         }
 
-        let path = session.req_header().uri.path();
-
-        let parse_path_result = parse_path(path);
-        if parse_path_result.is_err() {
-            error!("Failed to parse path: {:?}", parse_path_result);
-            return Err(pingora::Error::new_str("Failed to parse path"));
-        }
-
-        let (_, (bucket, _)) = parse_path_result.expect("checked above");
-
-        let hdr_bucket = bucket.to_owned();
+        let hdr_bucket = ctx.cached_bucket.clone().unwrap_or_else(|| {
+            let path = session.req_header().uri.path();
+            parse_path(path)
+                .map(|(_, (b, _))| b.to_owned())
+                .unwrap_or_default()
+        });
 
         let bucket_config = {
             let map = ctx.cos_mapping.read().await;
@@ -401,31 +400,26 @@ impl ProxyHttp for MyProxy {
         };
 
         let addressing_style = bucket_config
-            .clone()
-            .and_then(|config| config.addressing_style)
-            .unwrap_or("virtual".to_string());
+            .as_ref()
+            .and_then(|c| c.addressing_style.as_deref())
+            .unwrap_or("virtual");
 
-        let endpoint = match bucket_config.clone() {
+        let endpoint = match &bucket_config {
             Some(config) => {
                 if addressing_style == "path" {
-                    config.host.to_owned()
+                    config.host.clone()
                 } else {
-                    format!("{}.{}", bucket, config.host)
+                    format!("{}.{}", hdr_bucket, config.host)
                 }
             }
-            None => {
-                format!("{}.{}", bucket, self.cos_endpoint)
-            }
+            None => format!("{}.{}", hdr_bucket, self.cos_endpoint),
         };
 
-        let port = bucket_config
-            .clone()
-            .map(|config| config.port)
-            .unwrap_or(443);
+        let port = bucket_config.as_ref().map(|c| c.port).unwrap_or(443);
 
         let addr = (endpoint.clone(), port);
 
-        let endpoint_is_tls = bucket_config.and_then(|config| config.tls).unwrap_or(true);
+        let endpoint_is_tls = bucket_config.as_ref().and_then(|c| c.tls).unwrap_or(true);
 
         debug!(endpoint_is_tls, endpoint, "resolved upstream peer");
 
@@ -634,6 +628,7 @@ impl ProxyHttp for MyProxy {
         let (_, (bucket, _uri_path)) = parse_path_result.expect("checked above");
 
         let hdr_bucket = bucket.to_owned();
+        ctx.cached_bucket = Some(hdr_bucket.clone());
 
         #[cfg(feature = "metrics")]
         {
@@ -656,9 +651,11 @@ impl ProxyHttp for MyProxy {
             .map(ToString::to_string)
             .unwrap_or_default();
 
-        let ttl = {
+        let (ttl, bucket_config_init) = {
             let map = ctx.cos_mapping.read().await;
-            map.get(bucket).and_then(|c| c.ttl).unwrap_or(0)
+            let cfg = map.get(bucket).cloned();
+            let ttl = cfg.as_ref().and_then(|c| c.ttl).unwrap_or(0);
+            (ttl, cfg)
         };
         let mut access_key: String = String::new();
 
@@ -910,10 +907,7 @@ impl ProxyHttp for MyProxy {
             return Ok(true);
         }
 
-        let bucket_config = {
-            let map = ctx.cos_mapping.read().await;
-            map.get(&hdr_bucket).cloned()
-        };
+        let bucket_config = bucket_config_init;
 
         debug!("Access key: {}", &access_key);
 
@@ -1031,11 +1025,11 @@ impl ProxyHttp for MyProxy {
         };
 
         let addressing_style = bucket_config
-            .clone()
-            .and_then(|config| config.addressing_style)
-            .unwrap_or("virtual".to_string());
+            .as_ref()
+            .and_then(|c| c.addressing_style.as_deref())
+            .unwrap_or("virtual");
 
-        let this_url = match addressing_style.as_str() {
+        let this_url = match addressing_style {
             "virtual" => my_updated_url,
             _ => {
                 // For bucket-root requests, my_updated_url is "/" which would
@@ -1052,10 +1046,10 @@ impl ProxyHttp for MyProxy {
             }
         };
 
-        let endpoint = match bucket_config.clone() {
+        let endpoint = match &bucket_config {
             Some(cfg) => {
-                let this_host = match addressing_style.as_str() {
-                    "path" => cfg.host.to_owned(),
+                let this_host = match addressing_style {
+                    "path" => cfg.host.clone(),
                     _ => format!("{}.{}", bucket, cfg.host),
                 };
                 if cfg.port == 443 {
@@ -1069,8 +1063,8 @@ impl ProxyHttp for MyProxy {
 
         debug!("endpoint: {}.", &endpoint);
 
-        // Box:leak the temporary string to get a static reference which will outlive the function
-        let authority = Authority::from_static(Box::leak(endpoint.clone().into_boxed_str()));
+        let authority = Authority::try_from(endpoint.as_str())
+            .map_err(|_| pingora::Error::new_str("invalid upstream authority"))?;
         // if addressing_style == "virtual" {
 
         let new_uri = Uri::builder()
