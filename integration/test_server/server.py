@@ -1,8 +1,9 @@
 """
 server.py — minimal OSP proxy for integration testing.
 
-Reads Garage backend credentials from .env (written by bootstrap.py) and
-exposes a single bucket through the proxy on http://localhost:6190.
+Reads Garage and (optionally) MinIO backend credentials from .env / .env.minio
+(written by bootstrap.py / minio_bootstrap.py) and exposes all configured
+buckets through a single proxy on http://localhost:6190.
 
 Run with the *root* project venv (which has object_storage_proxy installed):
     uv run --no-sync python integration/test_server/server.py
@@ -18,8 +19,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env written by bootstrap.py
-load_dotenv(Path(__file__).parent / ".env")
+HERE = Path(__file__).parent
+
+# Load Garage .env (always required)
+load_dotenv(HERE / ".env")
+# Load MinIO .env on top if present (values don't overlap — different key names)
+load_dotenv(HERE / ".env.minio", override=False)
 
 # ── Import OSP from the root venv ─────────────────────────────────────────────
 from object_storage_proxy import ProxyServerConfig, start_server  # noqa: E402
@@ -31,6 +36,14 @@ GARAGE_REGION = os.environ.get("GARAGE_REGION", "garage")
 GARAGE_BUCKET = os.environ.get("GARAGE_BUCKET", "test-bucket")
 GARAGE_ACCESS_KEY = os.environ["GARAGE_ACCESS_KEY_ID"]
 GARAGE_SECRET_KEY = os.environ["GARAGE_SECRET_ACCESS_KEY"]
+
+# ── MinIO backend credentials (optional) ──────────────────────────────────────
+MINIO_HOST = os.environ.get("MINIO_HOST", "")
+MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
+MINIO_REGION = os.environ.get("MINIO_REGION", "us-east-1")
+MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "")
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY_ID", "")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_ACCESS_KEY", "")
 
 # ── Frontend credentials (what OSP clients present) ───────────────────────────
 CLIENT_ACCESS_KEY = os.environ.get("OSP_CLIENT_ACCESS_KEY", "osp-client")
@@ -68,6 +81,21 @@ cos_map = {
         "is_tls_enabled": False,
     },
 }
+
+# Add MinIO bucket if credentials are available
+if MINIO_HOST and MINIO_BUCKET and MINIO_ACCESS_KEY:
+    cos_map[MINIO_BUCKET] = {
+        "host": MINIO_HOST,
+        "port": MINIO_PORT,
+        "region": MINIO_REGION,
+        "access_key": MINIO_ACCESS_KEY,
+        "secret_key": MINIO_SECRET_KEY,
+        "addressing_style": "path",
+        "is_tls_enabled": False,
+    }
+    print(
+        f"[osp] minio      -> http://{MINIO_HOST}:{MINIO_PORT}  bucket={MINIO_BUCKET}"
+    )
 
 # ── Server ────────────────────────────────────────────────────────────────────
 

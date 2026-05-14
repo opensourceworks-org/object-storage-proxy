@@ -156,11 +156,11 @@ class TestConditionalGet:
         assert resp["ResponseMetadata"]["HTTPStatusCode"] == 200
         assert resp["Body"].read() == body
 
-    @pytest.mark.xfail(
-        reason="Garage v1.0.1 does not enforce If-Match; returns 200 instead of 412.",
-        strict=True,
-    )
-    def test_if_match_wrong_etag_raises_412(self, bucket, obj):
+    def test_if_match_wrong_etag_raises_412(self, bucket, obj, backend):
+        if backend == "garage":
+            pytest.xfail(
+                "Garage v1.0.1 does not enforce If-Match; returns 200 instead of 412."
+            )
         s3, key, _, _ = obj
         with pytest.raises(botocore.exceptions.ClientError) as exc_info:
             s3.get_object(
@@ -217,12 +217,12 @@ class TestConditionalGet:
         assert resp["ResponseMetadata"]["HTTPStatusCode"] == 200
         assert resp["Body"].read() == body
 
-    @pytest.mark.xfail(
-        reason="Garage v1.0.1 does not enforce If-Unmodified-Since; returns 200 instead of 412.",
-        strict=True,
-    )
-    def test_if_unmodified_since_old_date_raises_412(self, bucket, obj):
+    def test_if_unmodified_since_old_date_raises_412(self, bucket, obj, backend):
         """If-Unmodified-Since set to epoch -> object is newer -> 412."""
+        if backend == "garage":
+            pytest.xfail(
+                "Garage v1.0.1 does not enforce If-Unmodified-Since; returns 200 instead of 412."
+            )
         from email.utils import formatdate
 
         s3, key, _, _ = obj

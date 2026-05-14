@@ -3,10 +3,12 @@ conftest.py — shared pytest fixtures for OSP integration tests.
 
 Fixtures
 --------
-env         Raw config dict loaded from .env
-s3          boto3 S3 client pointed at the OSP proxy
-s3_direct   boto3 S3 client pointed directly at Garage (bypass proxy)
-bucket      Name of the test bucket (from .env)
+backend     Parametrized over ["garage", "minio"]; all tests run against both.
+            MinIO is skipped automatically when .env.minio is absent.
+env         Raw config dict loaded from .env (Garage)
+s3          boto3 S3 client -> OSP proxy; parametrized via backend
+s3_direct   boto3 S3 client -> Garage directly (bypass proxy)
+bucket      Name of the test bucket; parametrized via backend
 prefix      A per-test unique key prefix, e.g. "tests/test_put_object/<uuid>/"
 aws_env     Dict of env vars ready to pass to subprocess for `aws s3 …` calls
 tmp_dir     A fresh temporary directory (pathlib.Path) for each test
@@ -26,9 +28,36 @@ import botocore.config
 import pytest
 from dotenv import dotenv_values
 
-# ── Load .env once ─────────────────────────────────────────────────────────────
+import hashlib
+import base64
+
+# ── Constants ─────────────────────────────────────────────────────────────────
 
 ENV_FILE = Path(__file__).parent.parent / ".env"
+
+
+def _register_delete_objects_md5(client) -> None:
+    """Inject Content-MD5 for DeleteObjects before signing.
+
+    botocore >=1.43 switched from Content-MD5 to x-amz-checksum-crc32 for
+    DeleteObjects.  Both Garage and MinIO still require Content-MD5 per the
+    AWS S3 spec, so we compute and add it before the signature is calculated.
+    """
+
+    def _inject(request, **kwargs):
+        body = request.body
+        if body is None:
+            return
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        request.headers["Content-MD5"] = base64.b64encode(
+            hashlib.md5(body).digest()
+        ).decode()
+
+    client.meta.events.register("before-sign.s3.DeleteObjects", _inject)
+
+
+# ── Load .env once ───────────────────────────────────────────────────────
 
 
 def _load_env() -> dict[str, str]:
@@ -76,6 +105,22 @@ def require_services(env: dict[str, str]) -> None:
     _check_reachable(proxy_url, "OSP proxy")
 
 
+# ── Backend parametrization ───────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="session", params=["garage", "minio"])
+def backend(request) -> str:
+    """Parametrize the whole test suite over both S3 backends.
+
+    Every test that depends on ``s3`` or ``bucket`` runs twice: once against
+    Garage, once against MinIO.  The MinIO parameter is skipped automatically
+    when ``.env.minio`` is absent (i.e. MinIO is not running).
+    """
+    if request.param == "minio":
+        _load_minio_env()  # calls pytest.skip() when .env.minio is absent
+    return request.param
+
+
 # ── boto3 clients ──────────────────────────────────────────────────────────────
 
 
@@ -90,10 +135,14 @@ def _boto_client(
         "signature_version": "s3v4",
         "s3": {"addressing_style": "path"},
         "retries": {"max_attempts": 1},
+        # Ensure botocore continues to send Content-MD5 for operations that
+        # require it (e.g. DeleteObjects) rather than switching to
+        # x-amz-checksum-* which some backends don't accept.
+        "request_checksum_calculation": "when_required",
     }
     if response_checksum_validation is not None:
         cfg_kwargs["response_checksum_validation"] = response_checksum_validation
-    return boto3.client(
+    client = boto3.client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=access_key,
@@ -101,32 +150,51 @@ def _boto_client(
         region_name=region,
         config=botocore.config.Config(**cfg_kwargs),
     )
+    _register_delete_objects_md5(client)
+    return client
 
 
 @pytest.fixture(scope="session")
-def s3(env: dict[str, str]):
-    """boto3 client -> OSP proxy (uses client credentials)."""
+def s3(backend: str, env: dict[str, str]):
+    """boto3 client -> OSP proxy.  Parametrized: Garage or MinIO bucket."""
+    if backend == "garage":
+        return _boto_client(
+            endpoint=f"http://{env['OSP_PROXY_HOST']}:{env['OSP_PROXY_PORT']}",
+            access_key=env["OSP_CLIENT_ACCESS_KEY"],
+            secret_key=env["OSP_CLIENT_SECRET_KEY"],
+            region=env.get("GARAGE_REGION", "garage"),
+        )
+    menv = _load_minio_env()
     return _boto_client(
-        endpoint=f"http://{env['OSP_PROXY_HOST']}:{env['OSP_PROXY_PORT']}",
-        access_key=env["OSP_CLIENT_ACCESS_KEY"],
-        secret_key=env["OSP_CLIENT_SECRET_KEY"],
-        region=env.get("GARAGE_REGION", "garage"),
+        endpoint=f"http://{menv['OSP_PROXY_HOST']}:{menv['OSP_PROXY_PORT']}",
+        access_key=menv["OSP_CLIENT_ACCESS_KEY"],
+        secret_key=menv["OSP_CLIENT_SECRET_KEY"],
+        region=menv.get("MINIO_REGION", "us-east-1"),
     )
 
 
 @pytest.fixture(scope="session")
-def s3_nochecksum(env: dict[str, str]):
+def s3_nochecksum(backend: str, env: dict[str, str]):
     """boto3 client -> OSP proxy with response checksum validation disabled.
 
     Use for tests that make ranged GetObject requests; without this, botocore
     would compare the full-object checksum header against the partial body and
     raise FlexibleChecksumError.
     """
+    if backend == "garage":
+        return _boto_client(
+            endpoint=f"http://{env['OSP_PROXY_HOST']}:{env['OSP_PROXY_PORT']}",
+            access_key=env["OSP_CLIENT_ACCESS_KEY"],
+            secret_key=env["OSP_CLIENT_SECRET_KEY"],
+            region=env.get("GARAGE_REGION", "garage"),
+            response_checksum_validation="when_required",
+        )
+    menv = _load_minio_env()
     return _boto_client(
-        endpoint=f"http://{env['OSP_PROXY_HOST']}:{env['OSP_PROXY_PORT']}",
-        access_key=env["OSP_CLIENT_ACCESS_KEY"],
-        secret_key=env["OSP_CLIENT_SECRET_KEY"],
-        region=env.get("GARAGE_REGION", "garage"),
+        endpoint=f"http://{menv['OSP_PROXY_HOST']}:{menv['OSP_PROXY_PORT']}",
+        access_key=menv["OSP_CLIENT_ACCESS_KEY"],
+        secret_key=menv["OSP_CLIENT_SECRET_KEY"],
+        region=menv.get("MINIO_REGION", "us-east-1"),
         response_checksum_validation="when_required",
     )
 
@@ -144,8 +212,10 @@ def s3_direct(env: dict[str, str]):
 
 
 @pytest.fixture(scope="session")
-def bucket(env: dict[str, str]) -> str:
-    return env["GARAGE_BUCKET"]
+def bucket(backend: str, env: dict[str, str]) -> str:
+    if backend == "garage":
+        return env["GARAGE_BUCKET"]
+    return _load_minio_env()["MINIO_BUCKET"]
 
 
 # ── Per-test isolation ─────────────────────────────────────────────────────────
@@ -212,7 +282,7 @@ def aws_env(env: dict[str, str], tmp_path_factory) -> dict[str, str]:
 @pytest.fixture(scope="session")
 def spark_session(env: dict[str, str]):
     """
-    A session-scoped SparkSession wired to the OSP proxy via s3a.
+    A session-scoped SparkSession wired to the OSP proxy via s3a (Garage backend).
 
     Spark is slow to start (~20-40 s on first run while Ivy downloads
     hadoop-aws), so we share one session across all spark tests.
@@ -228,6 +298,60 @@ def spark_session(env: dict[str, str]):
         secret_key=env["OSP_CLIENT_SECRET_KEY"],
         endpoint=proxy_endpoint,
         region=env.get("GARAGE_REGION", "garage"),
+    )
+    yield spark
+    spark.stop()
+
+
+# ── MinIO env + fixtures ───────────────────────────────────────────────────────
+
+ENV_MINIO_FILE = Path(__file__).parent.parent / ".env.minio"
+
+
+def _load_minio_env() -> dict[str, str]:
+    if not ENV_MINIO_FILE.exists():
+        pytest.skip(
+            f".env.minio not found at {ENV_MINIO_FILE}.\n"
+            "Run `task integration:minio:bootstrap` first."
+        )
+    from dotenv import dotenv_values
+
+    values = dotenv_values(ENV_MINIO_FILE)
+    return {k: v for k, v in values.items() if v is not None}
+
+
+@pytest.fixture(scope="session")
+def minio_env() -> dict[str, str]:
+    return _load_minio_env()
+
+
+@pytest.fixture(scope="session")
+def minio_bucket(minio_env: dict[str, str]) -> str:
+    return minio_env["MINIO_BUCKET"]
+
+
+@pytest.fixture(scope="session")
+def spark_session_minio(minio_env: dict[str, str]):
+    """
+    A session-scoped SparkSession wired to the OSP proxy via s3a (MinIO backend).
+
+    Uses the same proxy endpoint as the Garage session but targets the MinIO
+    bucket registered in the cos_map.  Skipped automatically when .env.minio
+    is absent (i.e. MinIO is not running).
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from spark import build_spark_session  # noqa: PLC0415
+
+    proxy_endpoint = (
+        f"http://{minio_env['OSP_PROXY_HOST']}:{minio_env['OSP_PROXY_PORT']}"
+    )
+    spark = build_spark_session(
+        access_key=minio_env["OSP_CLIENT_ACCESS_KEY"],
+        secret_key=minio_env["OSP_CLIENT_SECRET_KEY"],
+        endpoint=proxy_endpoint,
+        region=minio_env.get("MINIO_REGION", "us-east-1"),
     )
     yield spark
     spark.stop()

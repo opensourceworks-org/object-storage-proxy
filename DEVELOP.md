@@ -26,12 +26,13 @@
 | `task clean` | remove Rust artefacts and `.venv` |
 | `task clean:wheels` | remove `target/wheels/` only |
 | `task integration:run` | automated integration test: up -> test -> down |
-| `task integration:up` | start Garage + bootstrap + OSP proxy |
-| `task integration:down` | stop proxy + stop Garage |
+| `task integration:up` | start Garage + MinIO + bootstrap both + OSP proxy |
+| `task integration:down` | stop proxy + stop Garage + MinIO |
+| `task integration:bootstrap` | bootstrap both backends (write `.env` + `.env.minio`) |
 | `task integration:test` | run pytest suite (excludes Spark) |
-| `task integration:test:spark` | run only the Spark tests (`-m spark`) |
-| `task integration:test:all` | run full suite including Spark tests |
-| `task integration:test:spark` | run only the Spark tests (`-m spark`) |
+| `task integration:test:spark` | Spark tests against all backends (Garage + MinIO) |
+| `task integration:test:spark:garage` | Spark tests against Garage only |
+| `task integration:test:spark:minio` | Spark tests against MinIO only |
 | `task integration:test:all` | run full suite including Spark tests |
 | `task hooks:install` | install (or re-install) the pre-commit git hooks |
 | `task hooks:run` | run all pre-commit checks against every file |
@@ -311,7 +312,12 @@ Pushing a `v*` tag triggers `.github/workflows/release.yml`, which:
 
 ## Integration testing
 
-The integration test suite runs OSP against a real [Garage](https://garagehq.deuxfleurs.fr/) S3-compatible storage node inside Docker. All tests live under `integration/test_server/tests/` and use pytest + boto3.
+The integration test suite runs OSP against two real S3-compatible storage backends inside Docker:
+
+- **[Garage](https://garagehq.deuxfleurs.fr/)** — a self-hosted S3-compatible store; the primary test target.
+- **[MinIO](https://min.io/)** — used to verify compatibility with stricter S3 API enforcement (see [S3 API compliance](#s3-api-compliance-differences) below).
+
+All tests live under `integration/test_server/tests/` and use pytest + boto3.
 
 ### Prerequisites
 
@@ -334,8 +340,15 @@ Bring the stack up once and iterate on tests without restarting:
 ```bash
 task integration:setup           # install test Python deps (once)
 task integration:garage:up       # start Garage container
-task integration:garage:bootstrap  # create bucket + HMAC key, write .env
+task integration:minio:up        # start MinIO container
+task integration:bootstrap       # create buckets + keys, write .env + .env.minio
 task integration:server:start    # start the OSP proxy in the background
+```
+
+Or use the single convenience shortcut that does all of the above:
+
+```bash
+task integration:up
 ```
 
 Run the tests:
@@ -357,22 +370,31 @@ task integration:garage:destroy  # also wipe Garage data volumes
 | Task | Description |
 |------|-------------|
 | `integration:setup` | `uv sync` in `integration/test_server/` |
-| `integration:up` | Garage up -> bootstrap -> proxy start |
-| `integration:down` | Stop proxy -> stop Garage |
+| `integration:up` | Garage + MinIO up -> bootstrap both -> proxy start |
+| `integration:down` | Stop proxy -> stop Garage + MinIO |
+| `integration:bootstrap` | Bootstrap both backends (write `.env` + `.env.minio`) |
 | `integration:run` | Automated: up -> test -> down (teardown on failure too) |
 | `integration:garage:up` | Start the Garage Docker container |
-| `integration:garage:down` | Stop and remove the container |
+| `integration:garage:down` | Stop and remove the Garage container |
 | `integration:garage:destroy` | Stop container **and** remove data volumes |
 | `integration:garage:bootstrap` | Create bucket + HMAC key in Garage, write `.env` |
 | `integration:garage:logs` | Follow Garage container logs |
 | `integration:garage:status` | Query Garage cluster status via admin API |
+| `integration:minio:up` | Start the MinIO Docker container |
+| `integration:minio:down` | Stop and remove the MinIO container |
+| `integration:minio:destroy` | Stop container **and** remove data volumes |
+| `integration:minio:bootstrap` | Create MinIO bucket, write `.env.minio` |
 | `integration:server:start` | Start OSP proxy in the background (logs -> `proxy.log`) |
 | `integration:server:stop` | Stop the background proxy |
 | `integration:server:logs` | Tail the proxy log |
-| `integration:test` | Run pytest suite against the running environment |
+| `integration:test` | Run pytest suite against the running environment (excludes Spark) |
 | `integration:test:fast` | Same, with `-x` (stop on first failure) |
-| `integration:test:spark` | Run only the Spark tests (`-m spark`) |
-| `integration:test:spark:fast` | Same, with `-x` (stop on first failure) |
+| `integration:test:spark` | Spark tests against all backends (Garage + MinIO) |
+| `integration:test:spark:garage` | Spark tests against Garage only |
+| `integration:test:spark:garage:fast` | Same, with `-x` |
+| `integration:test:spark:minio` | Spark tests against MinIO only |
+| `integration:test:spark:minio:fast` | Same, with `-x` |
+| `integration:test:spark:fast` | Spark tests against all backends, stop on first failure |
 | `integration:test:all` | Run full suite including Spark tests |
 
 ### What the tests cover
@@ -386,26 +408,35 @@ task integration:garage:destroy  # also wipe Garage data volumes
 | `tests/test_range_requests.py` | Byte-range GET (single, multi, suffix, full), `206 Partial Content`, conditional GET headers (`If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`) |
 | `tests/test_metadata.py` | Custom `x-amz-meta-*` headers, `Content-Type`, `Cache-Control`, `Content-Disposition`, `Content-Encoding`, copy metadata directives (`COPY` / `REPLACE`) |
 | `tests/test_etag.py` | ETag format for single-part and multipart objects, ETag preservation through CopyObject, checksum header tolerance |
-| `tests/test_tagging.py` | `PutObjectTagging`, `GetObjectTagging`, `DeleteObjectTagging` — marked `xfail` (Garage limitation, see below) |
+| `tests/test_tagging.py` | `PutObjectTagging`, `GetObjectTagging`, `DeleteObjectTagging` — `xfail` for Garage (not implemented), **expected to pass** for MinIO |
 | `tests/test_bucket_ops.py` | HeadBucket, ListBuckets, GetBucketLocation, ListObjectsV1/V2 extended params, ListMultipartUploads |
 | `tests/test_advanced_objects.py` | DeleteObjects (quiet/mixed), UploadPartCopy (full source + byte-range), presigned HEAD/DELETE/GET-with-range, `response-*` query overrides, 12 MB streaming PUT |
-| `tests/test_spark.py` | Spark s3a read/write: Parquet, JSON, overwrite, empty DataFrame, large DataFrame (10 000 rows) |
+| `tests/test_spark.py` | Spark s3a read/write via OSP → **Garage**: Parquet, JSON, overwrite, empty DataFrame, large DataFrame (10 000 rows) |
+| `tests/test_spark_minio.py` | Same five tests via OSP → **MinIO** — also serves as a regression guard for `Content-MD5` forwarding on `DeleteObjects` (see [S3 API compliance](#s3-api-compliance-differences)) |
 
-### Known Garage v1.0.1 limitations
+### Known backend limitations
 
-The following S3 operations are **not implemented by Garage** and will remain `xfail` until the backend adds support.  The proxy forwards the requests correctly — the limitation is entirely in the storage backend.
+The following S3 operations are known to behave differently across backends. The proxy forwards all requests correctly — the limitations are entirely in the storage backends. Because the test suite runs against **both** Garage and MinIO (parametrized as `[garage]` and `[minio]`), each limitation is isolated to the relevant backend's run.
 
-| Operation | Symptom | Notes |
-|-----------|---------|-------|
-| `PutObjectTagging` | `NotImplemented` | `?tagging` sub-resource not supported |
-| `GetObjectTagging` | `NotImplemented` | `?tagging` sub-resource not supported |
-| `DeleteObjectTagging` | `NotImplemented` | `?tagging` sub-resource not supported |
-| `If-Match` enforcement | Returns 200 instead of 412 | Garage ignores the header on `GET` |
-| `If-Unmodified-Since` enforcement | Returns 200 instead of 412 | Garage ignores the header on `GET` |
+**Garage v1.0.1 — xfail on `[garage]`, passes on `[minio]`:**
 
-> `If-None-Match` (→ 304) and `If-Modified-Since` (→ 304) **are** enforced correctly by Garage.
+| Operation | Garage symptom |
+|-----------|---------------|
+| `PutObjectTagging` | `NotImplemented` |
+| `GetObjectTagging` | `NotImplemented` |
+| `DeleteObjectTagging` | `NotImplemented` |
+| `If-Match` enforcement on `GET` | Returns `200` instead of `412` |
+| `If-Unmodified-Since` enforcement on `GET` | Returns `200` instead of `412` |
 
-These tests use `strict=True` or `strict=False` xfail markers so the suite stays green and will automatically promote to passes if the backend is upgraded.
+> `If-None-Match` (→ `304`) and `If-Modified-Since` (→ `304`) **are** enforced correctly by both backends.
+
+**MinIO — xfail on `[minio]`, passes on `[garage]`:**
+
+| Operation | MinIO symptom |
+|-----------|---------------|
+| `ListMultipartUploads` with `Prefix` ending in `/` | Returns empty `Uploads` list; using the full key as `Prefix` (without trailing slash) works correctly |
+
+All xfail markers use `strict=False` so the suite stays green and will automatically promote to a pass if the backend is upgraded.
 
 ### Spark tests
 
@@ -503,8 +534,88 @@ Key Hadoop S3A settings applied:
 | 3901 | Garage RPC |
 | 3903 | Garage admin API |
 | 6190 | OSP proxy (S3 frontend) |
+| 9000 | MinIO S3 API |
+| 9001 | MinIO web console |
 | 9091 | OSP Prometheus metrics |
 
 ### Environment
 
-`bootstrap.py` writes `integration/test_server/.env` with the generated Garage credentials. `server.py` and the pytest fixtures both load this file automatically. The file is gitignored — never commit it.
+`bootstrap.py` writes `integration/test_server/.env` with the generated Garage credentials.
+`minio_bootstrap.py` writes `integration/test_server/.env.minio` with the MinIO credentials.
+Both files are loaded automatically by `server.py` and the pytest fixtures. Both are gitignored — never commit them.
+
+Tests in `test_spark_minio.py` are skipped automatically when `.env.minio` is absent, so the Garage-only suite always works without MinIO running.
+
+---
+
+## S3 API compliance differences
+
+Different S3-compatible backends vary in how strictly they follow the AWS S3 specification. OSP is tested against both Garage and MinIO to catch these differences early.
+
+| Operation | AWS spec | Garage v1.0.1 | MinIO | Test status |
+|-----------|----------|---------------|-------|-------------|
+| `DeleteObjects` — `Content-MD5` header | **Required** | Accepted without it (lenient) | Rejected without it (`400 InvalidRequest`) | passes on both (see note below) |
+| `x-amz-tagging-directive` on `CopyObject` | `COPY` or `REPLACE` | N/A (tagging not implemented) | ✅ enforced | passes on MinIO |
+| `PutObjectTagging` / `GetObjectTagging` / `DeleteObjectTagging` | Supported | `NotImplemented` | ✅ Supported | `xfail` Garage, passes MinIO |
+| `If-Match` / `If-Unmodified-Since` on `GET` | Must return `412` when condition fails | Returns `200` (header ignored) | ✅ Returns `412` | `xfail` Garage, passes MinIO |
+| `ListMultipartUploads` with `Prefix` ending in `/` | Returns matching uploads | ✅ works | Returns empty list | passes Garage, `xfail` MinIO |
+
+### botocore ≥ 1.43 and Content-MD5
+
+botocore 1.43 changed `DeleteObjects` to send `x-amz-checksum-crc32` instead of `Content-MD5` for body integrity. This behaviour **cannot** be overridden via the `request_checksum_calculation` config option — the old header is simply never emitted regardless of settings.
+
+MinIO still **requires** `Content-MD5` on `DeleteObjects` and rejects requests without it with `400 MissingContentMD5`. To keep the test suite working correctly against both backends, `conftest.py` injects the header via a botocore event hook that runs _before_ SigV4 signing (so it appears in `SignedHeaders`):
+
+```python
+def _register_delete_objects_md5(client) -> None:
+    def _inject(request, **kwargs):
+        body = request.body
+        if body is None:
+            return
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        request.headers["Content-MD5"] = base64.b64encode(
+            hashlib.md5(body).digest()
+        ).decode()
+
+    client.meta.events.register("before-sign.s3.DeleteObjects", _inject)
+```
+
+OSP itself forwards `Content-MD5` unchanged when it is present — it is in the upstream allowlist and is never stripped. If you use boto3 ≥ 1.43 in your own application against a MinIO backend through OSP, you will need the same hook.
+
+### Internal proxy fixes discovered during dual-backend testing
+
+These bugs in OSP were found and fixed while adding MinIO to the test matrix.
+
+#### Bare sub-resource query keys (`?delete`, `?uploads`, `?tagging`)
+
+The S3 protocol uses bare query parameters (no `=value`) as sub-resource identifiers. OSP's query parser previously required every key to have an `=` sign, causing `DeleteObjects` (`?delete`), `ListMultipartUploads` (`?uploads`), and `PutObjectTagging` (`?tagging`) to return `500`. Fixed in `src/parsers/path.rs`:
+
+```rust
+// Bare sub-resource key with no value (e.g. "delete", "uploads", "tagging").
+let (input, key) = map_res(take_until_either("&"), decode_segment).parse(input)?;
+Ok((input, (key, String::new())))
+```
+
+#### Bucket-root trailing slash (path-style addressing)
+
+For path-style backends, bucket-level requests (`GET /bucket?uploads&prefix=…`) were forwarded upstream as `GET /bucket/?uploads&prefix=…` (extra trailing slash), causing signature mismatches. Fixed in `upstream_request_filter` in `src/lib.rs`:
+
+```rust
+// Strip trailing slash for bucket-root requests in path-style mode.
+let u_url = if my_updated_url == "/" {
+    format!("/{}", bucket)
+} else {
+    format!("/{}{}", bucket, my_updated_url)
+};
+```
+
+#### `x-amz-tagging-directive` stripped by the proxy
+
+`CopyObject` with `TaggingDirective: REPLACE` requires `x-amz-tagging-directive` to reach the backend. It was not in OSP's upstream header allowlist, so it was silently dropped. Fixed by adding it alongside `x-amz-tagging` in `src/lib.rs`.
+
+#### Separate bucket names required per backend
+
+Both backends initially used `test-bucket`, causing MinIO's `cos_map` entry to silently overwrite Garage's. All requests then routed to MinIO regardless of the parametrized backend. Fixed by giving MinIO a distinct name (`test-bucket-minio`) in `minio_bootstrap.py`.
+
+> **cos_map constraint:** each key in `cos_map` must be globally unique. If you need the same logical bucket name on multiple backends, use distinct proxy-side names and map them in your `authorize` callback.

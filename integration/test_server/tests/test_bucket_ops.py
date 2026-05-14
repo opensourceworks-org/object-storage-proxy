@@ -181,7 +181,11 @@ class TestListObjectsV1:
 
 
 class TestListMultipartUploads:
-    def test_in_progress_upload_appears_in_list(self, s3, bucket, prefix):
+    def test_in_progress_upload_appears_in_list(self, s3, bucket, prefix, backend):
+        if backend == "minio":
+            pytest.xfail(
+                "MinIO ListMultipartUploads returns empty when Prefix ends with '/'"
+            )
         key = f"{prefix}mpu-in-progress.bin"
         mpu = s3.create_multipart_upload(Bucket=bucket, Key=key)
         uid = mpu["UploadId"]

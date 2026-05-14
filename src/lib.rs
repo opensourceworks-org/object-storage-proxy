@@ -1038,7 +1038,15 @@ impl ProxyHttp for MyProxy {
         let this_url = match addressing_style.as_str() {
             "virtual" => my_updated_url,
             _ => {
-                let u_url = format!("/{}{}", bucket, my_updated_url);
+                // For bucket-root requests, my_updated_url is "/" which would
+                // produce "/bucket/" (with trailing slash).  Bucket-level S3
+                // operations (ListObjects, ListMultipartUploads, …) must be
+                // addressed as "/bucket" — without the trailing slash.
+                let u_url = if my_updated_url == "/" {
+                    format!("/{}", bucket)
+                } else {
+                    format!("/{}{}", bucket, my_updated_url)
+                };
                 debug!(u_url, "using path addressing style");
                 &u_url.clone()
             }
@@ -1085,10 +1093,10 @@ impl ProxyHttp for MyProxy {
             "host",
             "content-length",
             "content-type",
+            "content-md5",
             "x-amz-date",
             "x-amz-content-sha256",
             "x-amz-security-token",
-            // "content-md5",
             "transfer-encoding",
             "content-encoding",
             "x-amz-decoded-content-length",
@@ -1113,6 +1121,8 @@ impl ProxyHttp for MyProxy {
             "content-disposition",
             // Inline object tagging on PutObject
             "x-amz-tagging",
+            // TaggingDirective on CopyObject (COPY or REPLACE)
+            "x-amz-tagging-directive",
             "range",
             "expect",
         ];

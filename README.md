@@ -33,6 +33,7 @@ This proxy solves that by:
 ## Features
 
 - Compatible with any AWS S3-compatible client: aws-cli, boto3, polars, spark, datafusion, presto, trino, ...
+- Normalises differences between S3-compatible backends so clients work regardless of whether the backend is AWS S3, MinIO, Garage, or IBM COS (see [Backend compatibility](#backend-compatibility) below).
 - Decouples frontend authentication (what the client sends) from backend authentication (what the storage expects).
 - Python callables for credential fetching, HMAC key lookup, and per-request authorization.
 - TTL-based credential and authorization caching.
@@ -194,6 +195,22 @@ def lookup_secret(access_key: str) -> str | None: ...
 # Authorize a request. request dict contains: method, path, query, headers.
 def authorize(token: str, bucket: str, request: dict | None = None) -> bool: ...
 ```
+
+## Backend compatibility
+
+S3-compatible backends differ in how strictly they follow the AWS S3 specification. OSP irons out these differences so clients don't need to care which backend is underneath.
+
+| Behaviour | AWS S3 spec | Garage | MinIO | OSP handling |
+|-----------|-------------|--------|-------|-------------|
+| `Content-MD5` on `DeleteObjects` | **Required** | Accepted without it (lenient) | Enforced (`400` if missing) | Forwarded when present; test suite injects it because botocore ≥ 1.43 no longer sends it by default |
+| `x-amz-tagging-directive` on `CopyObject` | `COPY` or `REPLACE` | N/A (tagging not implemented) | ✅ enforced | Header is in OSP's forwarding allowlist — was previously stripped |
+| `PutObjectTagging` / `GetObjectTagging` | Supported | `NotImplemented` | ✅ | Forwarded; backend limitation is transparent |
+| `If-Match` / `If-Unmodified-Since` on `GET` | Must return `412` | Returns `200` (header ignored) | ✅ Returns `412` | Forwarded; backend limitation is transparent |
+| `ListMultipartUploads` with `Prefix` ending in `/` | Returns matching uploads | ✅ works | Returns empty list (MinIO bug) | Forwarded; MinIO limitation documented as `xfail` in the test suite |
+
+> **botocore ≥ 1.43 note:** Recent versions of boto3 switched from `Content-MD5` to `x-amz-checksum-crc32` for body integrity on `DeleteObjects`, regardless of the `request_checksum_calculation` setting. `Content-MD5` is still required by MinIO. If you use boto3 ≥ 1.43 directly against MinIO through OSP you may need to inject `Content-MD5` manually via a `before-sign` event hook — see [DEVELOP.md](DEVELOP.md#botocore-43-and-content-md5) for details and example code.
+
+The integration test suite covers all of the above: every test runs parametrized over both Garage and MinIO backends, so regressions surface immediately. See [DEVELOP.md](DEVELOP.md#s3-api-compliance-differences) for the full compliance table and the internal proxy fixes that enable it.
 
 ## Prometheus metrics
 

@@ -43,13 +43,23 @@ fn decode_segment(input: &str) -> Result<String, FromUtf8Error> {
 }
 
 fn key_value_pair(input: &str) -> IResult<&str, (String, String)> {
-    let (input, (key, value)) = (separated_pair(
-        map_res(take_until("="), decode_segment),
-        tag("="),
-        map_res(take_until_either("&"), decode_segment),
-    ))
-    .parse(input)?;
-    Ok((input, (key, value)))
+    // First try the normal key=value form.
+    if input.contains('=')
+        && (input
+            .find('&')
+            .is_none_or(|a| input.find('=').is_some_and(|e| e < a)))
+    {
+        let (input, (key, value)) = (separated_pair(
+            map_res(take_until("="), decode_segment),
+            tag("="),
+            map_res(take_until_either("&"), decode_segment),
+        ))
+        .parse(input)?;
+        return Ok((input, (key, value)));
+    }
+    // Bare sub-resource key with no value (e.g. "delete", "uploads", "tagging").
+    let (input, key) = map_res(take_until_either("&"), decode_segment).parse(input)?;
+    Ok((input, (key, String::new())))
 }
 
 fn take_until_either<'a>(end: &'static str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {

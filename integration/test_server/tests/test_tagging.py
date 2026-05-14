@@ -27,17 +27,18 @@ from __future__ import annotations
 
 import pytest
 
-# Object tagging (PutObjectTagging / GetObjectTagging / DeleteObjectTagging)
-# is not yet implemented in OSP — it returns 501 NotImplemented.
-# These tests document the expected behaviour and serve as regression tests
-# once the feature is added.
-pytestmark = pytest.mark.xfail(
-    reason="Garage does not implement the S3 object tagging API "
-    "(PutObjectTagging / GetObjectTagging / DeleteObjectTagging). "
-    "These tests document expected behaviour for when a tagging-capable "
-    "backend is used.",
-    strict=False,  # allow unexpected passes if backend adds support
-)
+
+@pytest.fixture(autouse=True)
+def _xfail_tagging_on_garage(backend):
+    """Garage does not implement the S3 object tagging API; skip those runs.
+
+    MinIO does implement tagging, so those tests are expected to pass.
+    """
+    if backend == "garage":
+        pytest.xfail(
+            "Garage does not implement the S3 object tagging API "
+            "(PutObjectTagging / GetObjectTagging / DeleteObjectTagging)."
+        )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

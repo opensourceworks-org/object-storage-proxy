@@ -1481,7 +1481,7 @@ mod tests {
             "%2Fpath%2Fwith%2Fslash"
         );
         assert_eq!(uri_encode("/path/with/slash", false), "/path/with/slash");
-        assert_eq!(uri_encode("unicode✓", true).contains("%E2%9C%93"), true);
+        assert!(uri_encode("unicode✓", true).contains("%E2%9C%93"));
     }
 
     #[test]

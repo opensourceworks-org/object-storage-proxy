@@ -19,7 +19,8 @@ timeout = 120
 addopts = "-q --tb=short"
 testpaths = ["tests"]
 markers = [
-    "spark: marks tests that require a running SparkSession (slower)",
+    "spark: marks tests that require a running SparkSession against Garage (slower)",
+    "spark_minio: marks tests that require a running SparkSession against MinIO (slower)",
 ]
 
 [tool.uv]

@@ -146,15 +146,23 @@ tasks:
   # manual dev/testing while restarting just the proxy (or vice-versa).
   #
   # Quick reference:
-  #   task integration:up           # full stack (garage + bootstrap + proxy)
-  #   task integration:down         # tear everything down
-  #   task integration:test         # run tests against whatever is running
-  #   task integration:run          # automated: up -> test -> down
+  #   task integration:up             # full stack (garage + bootstrap + proxy)
+  #   task integration:down           # tear everything down
+  #   task integration:test           # run tests against whatever is running
+  #   task integration:run            # automated: up -> test -> down
   #
-  #   task integration:garage:up    # just Garage (stays running)
+  #   task integration:garage:up      # just Garage (stays running)
   #   task integration:garage:bootstrap   # create bucket + key, write .env
-  #   task integration:server:start # just the OSP proxy (background)
-  #   task integration:server:stop  # kill the proxy
+  #   task integration:server:start   # just the OSP proxy (background)
+  #   task integration:server:stop    # kill the proxy
+  #
+  #   task integration:minio:up       # start MinIO container
+  #   task integration:minio:bootstrap # create bucket, write .env.minio
+  #   task integration:minio:down     # stop MinIO container
+  #   task integration:minio:destroy  # stop MinIO AND remove volumes
+  #   task integration:test:spark         # Spark tests against all backends
+  #   task integration:test:spark:garage  # Spark tests (Garage only)
+  #   task integration:test:spark:minio   # Spark tests (MinIO only)
 
   integration:setup:
     desc: "Install Python deps for the integration test project"
@@ -207,6 +215,39 @@ tasks:
     cmds:
       - uv run python bootstrap.py
 
+  integration:minio:up:
+    desc: "Start the MinIO container (stays running)"
+    dir: integration/test_server
+    cmds:
+      - docker compose up -d minio
+      - echo "MinIO starting — waiting for healthy status …"
+      - |
+        for i in $(seq 1 30); do
+          status=$(docker inspect --format='{{"{{"}}{{".State.Health.Status"}}{{"}}"}}' osp-minio 2>/dev/null)
+          if [ "$status" = "healthy" ]; then echo "MinIO is healthy"; exit 0; fi
+          echo "  waiting… ($i/30) status=$status"; sleep 2
+        done
+        echo "MinIO did not become healthy in time" >&2; exit 1
+
+  integration:minio:bootstrap:
+    desc: "Create MinIO bucket and write integration/test_server/.env.minio"
+    dir: integration/test_server
+    cmds:
+      - uv run python minio_bootstrap.py
+
+  integration:minio:down:
+    desc: "Stop and remove the MinIO container"
+    dir: integration/test_server
+    cmds:
+      - docker compose stop minio
+      - docker compose rm -f minio
+
+  integration:minio:destroy:
+    desc: "Stop MinIO AND remove its data volumes"
+    dir: integration/test_server
+    cmds:
+      - docker compose down -v minio
+
   integration:server:start:
     desc: "Start the OSP proxy in the background (logs -> integration/test_server/proxy.log)"
     cmds:
@@ -242,42 +283,74 @@ tasks:
     cmds:
       - tail -f integration/test_server/proxy.log
 
+  integration:bootstrap:
+    desc: "Bootstrap both backends: create Garage bucket+key and MinIO bucket, write .env files"
+    cmds:
+      - task: integration:garage:bootstrap
+      - task: integration:minio:bootstrap
+
   integration:up:
-    desc: "Full environment: Garage up -> bootstrap -> proxy start"
+    desc: "Full environment: Garage + MinIO up -> bootstrap both -> proxy start"
     cmds:
       - task: integration:garage:up
-      - task: integration:garage:bootstrap
+      - task: integration:minio:up
+      - task: integration:bootstrap
       - task: integration:server:start
 
   integration:down:
-    desc: "Tear down: stop proxy -> stop Garage"
+    desc: "Tear down: stop proxy -> stop Garage + MinIO"
     cmds:
       - task: integration:server:stop
       - task: integration:garage:down
+      - task: integration:minio:down
 
   integration:test:
     desc: "Run integration tests against the running environment (excludes Spark)"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -q -m 'not spark'
+      - uv run pytest tests/ -q -m 'not spark and not spark_minio'
 
   integration:test:fast:
     desc: "Run integration tests, stop on first failure (excludes Spark)"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -q -x -m 'not spark'
+      - uv run pytest tests/ -q -x -m 'not spark and not spark_minio'
 
   integration:test:spark:
-    desc: "Run only the Spark s3a tests"
+    desc: "Run Spark s3a tests against all backends (Garage + MinIO)"
+    cmds:
+      - task: integration:test:spark:garage
+      - task: integration:test:spark:minio
+
+  integration:test:spark:garage:
+    desc: "Run only the Spark s3a tests (Garage backend)"
     dir: integration/test_server
     cmds:
       - uv run pytest tests/test_spark.py -q -m spark
 
-  integration:test:spark:fast:
-    desc: "Run Spark tests, stop on first failure"
+  integration:test:spark:garage:fast:
+    desc: "Run Spark tests (Garage), stop on first failure"
     dir: integration/test_server
     cmds:
       - uv run pytest tests/test_spark.py -q -m spark -x
+
+  integration:test:spark:fast:
+    desc: "Run Spark tests against all backends, stop on first failure"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/test_spark.py tests/test_spark_minio.py -q -m 'spark or spark_minio' -x
+
+  integration:test:spark:minio:
+    desc: "Run only the Spark s3a tests (MinIO backend)"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/test_spark_minio.py -q -m spark_minio
+
+  integration:test:spark:minio:fast:
+    desc: "Run Spark tests (MinIO), stop on first failure"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/test_spark_minio.py -q -m spark_minio -x
 
   integration:test:all:
     desc: "Run full test suite including Spark tests"

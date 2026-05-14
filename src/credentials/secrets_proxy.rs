@@ -283,7 +283,7 @@ mod tests {
             ("apikey", &api_key),
         ];
         let resp = client
-            .post(&format!("{}/identity/token", base_url))
+            .post(format!("{}/identity/token", base_url))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .form(&params)
             .send()
