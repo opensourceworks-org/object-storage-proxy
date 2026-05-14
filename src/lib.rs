@@ -209,6 +209,13 @@ pub struct ProxyServerConfig {
     #[pyo3(get, set)]
     pub server_name: String,
 
+    /// Maximum number of `(access_key, bucket, method)` entries held in the
+    /// in-process authorization cache.  Once the limit is reached the
+    /// least-recently-used entry is evicted automatically.
+    /// Defaults to [`AUTH_CACHE_DEFAULT_CAPACITY`] (1024).
+    #[pyo3(get, set)]
+    pub auth_cache_capacity: Option<usize>,
+
     /// Port to expose the Prometheus `/metrics` scrape endpoint on.
     ///
     /// Only effective when the `metrics` Cargo feature is enabled.
@@ -232,6 +239,7 @@ impl Default for ProxyServerConfig {
             hmac_fetcher: None,
             max_presign_url_usage_attempts: Some(3),
             server_name: "<osp⚡>".to_string(),
+            auth_cache_capacity: None,
             metrics_port: None,
         }
     }
@@ -254,6 +262,7 @@ impl ProxyServerConfig {
             hmac_fetcher = None,
             max_presign_url_usage_attempts = Some(3),
             server_name = "<osp⚡>".to_string(),
+            auth_cache_capacity = None,
             metrics_port = None,
         )
     )]
@@ -271,6 +280,7 @@ impl ProxyServerConfig {
         hmac_fetcher: Option<PyObject>,
         max_presign_url_usage_attempts: Option<usize>,
         server_name: String,
+        auth_cache_capacity: Option<usize>,
         metrics_port: Option<u16>,
     ) -> Self {
         ProxyServerConfig {
@@ -286,6 +296,7 @@ impl ProxyServerConfig {
             hmac_fetcher,
             max_presign_url_usage_attempts,
             server_name,
+            auth_cache_capacity,
             metrics_port,
         }
     }
@@ -360,23 +371,24 @@ pub struct MyCtx {
 impl ProxyHttp for MyProxy {
     type CTX = MyCtx;
     fn new_ctx(&self) -> Self::CTX {
+        // Acquire the GIL once to clone all three optional Python callables
+        // rather than paying the GIL acquisition cost up to three times per
+        // new connection.  TODO(perf-5): done
+        let (validator, bucket_creds_fetcher, hmac_fetcher) = Python::with_gil(|py| {
+            (
+                self.validator.as_ref().map(|v| v.clone_ref(py)),
+                self.bucket_creds_fetcher.as_ref().map(|v| v.clone_ref(py)),
+                self.hmac_fetcher.as_ref().map(|v| v.clone_ref(py)),
+            )
+        });
         MyCtx {
             cos_mapping: Arc::clone(&self.cos_mapping),
             hmac_keystore: Arc::clone(&self.hmac_keystore),
             secrets_cache: self.secrets_cache.clone(),
             auth_cache: self.auth_cache.clone(),
-            validator: self
-                .validator
-                .as_ref()
-                .map(|v| Python::with_gil(|py| v.clone_ref(py))),
-            bucket_creds_fetcher: self
-                .bucket_creds_fetcher
-                .as_ref()
-                .map(|v| Python::with_gil(|py| v.clone_ref(py))),
-            hmac_fetcher: self
-                .hmac_fetcher
-                .as_ref()
-                .map(|v| Python::with_gil(|py| v.clone_ref(py))),
+            validator,
+            bucket_creds_fetcher,
+            hmac_fetcher,
             is_presigned: None,
             stream_state: None,
             cached_bucket: None,
@@ -1498,17 +1510,11 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
         Python::with_gil(|py| utils::functions::callable_accepts_request(py, v).unwrap_or(false))
     });
 
-    let auth_cache_instance = AuthCache::new();
-
-    let auth_cache_for_sweep = auth_cache_instance.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
-        loop {
-            interval.tick().await;
-            auth_cache_for_sweep.sweep();
-            debug!("AuthCache sweep complete");
-        }
-    });
+    let auth_cache_instance = AuthCache::new(
+        run_args
+            .auth_cache_capacity
+            .unwrap_or(utils::validator::AUTH_CACHE_DEFAULT_CAPACITY),
+    );
 
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,

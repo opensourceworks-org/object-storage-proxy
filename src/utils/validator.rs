@@ -1,10 +1,12 @@
 use dashmap::DashMap;
+use lru::LruCache;
 use pyo3::{PyObject, Python};
 use tokio::{sync::Mutex, task};
 use tracing::{debug, error};
 
 use std::{
     collections::HashMap,
+    num::NonZeroUsize,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
@@ -15,35 +17,45 @@ struct AuthEntry {
     expires_at: Instant,
 }
 
-/// A time-bounded, per-request-key cache for authorization decisions.
+/// Default maximum number of distinct `(access_key, bucket, method)` entries
+/// held in the authorization cache.  Once the limit is reached the
+/// least-recently-used entry is evicted automatically — no background sweep
+/// task needed.
+pub const AUTH_CACHE_DEFAULT_CAPACITY: usize = 1024;
+
+/// A time-bounded, capacity-limited LRU cache for authorization decisions.
 ///
 /// Wraps arbitrary async validator functions so that the (potentially
 /// expensive) Python callback is only invoked once per `(access_key, bucket,
 /// method)` tuple within the configured TTL window.
 ///
+/// Memory is bounded by `capacity`: when the limit is reached the
+/// least-recently-used entry is evicted automatically (TODO perf-4: done).
+///
 /// Concurrent cache misses for the **same** key are serialised via a per-key
 /// [`Mutex`] to avoid thundering-herd stampedes.  Misses for **different** keys
 /// are fully concurrent — the per-key lock map is backed by a [`DashMap`] so
-/// no single global lock is held while looking up or inserting an entry.
+/// no single global lock is held (TODO perf-3: done).
 #[derive(Clone, Debug)]
 pub struct AuthCache {
-    inner: Arc<RwLock<HashMap<String, AuthEntry>>>,
-    /// Per-key mutex map.  Using DashMap instead of Mutex<HashMap<…>> means
-    /// concurrent misses for different keys never contend on a shared lock.
-    /// TODO(perf-3): done
+    inner: Arc<RwLock<LruCache<String, AuthEntry>>>,
+    /// Per-key mutex map — DashMap so concurrent misses for different keys
+    /// never contend on a shared lock.
     locks: Arc<DashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl Default for AuthCache {
     fn default() -> Self {
-        Self::new()
+        Self::new(AUTH_CACHE_DEFAULT_CAPACITY)
     }
 }
 
 impl AuthCache {
-    pub fn new() -> Self {
+    pub fn new(capacity: usize) -> Self {
+        let cap = NonZeroUsize::new(capacity)
+            .unwrap_or(NonZeroUsize::new(AUTH_CACHE_DEFAULT_CAPACITY).unwrap());
         AuthCache {
-            inner: Arc::new(RwLock::new(HashMap::new())),
+            inner: Arc::new(RwLock::new(LruCache::new(cap))),
             locks: Arc::new(DashMap::new()),
         }
     }
@@ -60,8 +72,10 @@ impl AuthCache {
         E: std::fmt::Debug,
     {
         if let Some(entry) = {
+            // LruCache::peek does not promote the entry, preserving LRU order
+            // on a read-only hit — no write lock needed.
             let map = self.inner.read().unwrap();
-            map.get(key).cloned()
+            map.peek(key).cloned()
         } && Instant::now() < entry.expires_at
         {
             debug!("Cache hit for key.");
@@ -82,7 +96,7 @@ impl AuthCache {
         // while we were waiting for the per-key mutex.
         if let Some(entry) = {
             let map = self.inner.read().expect("lock poisoned");
-            map.get(key).cloned()
+            map.peek(key).cloned()
         } && Instant::now() < entry.expires_at
         {
             return Ok(entry.authorized);
@@ -92,7 +106,7 @@ impl AuthCache {
 
         {
             let mut map = self.inner.write().expect("lock poisoned");
-            map.insert(
+            map.put(
                 key.to_string(),
                 AuthEntry {
                     authorized: decision,
@@ -111,40 +125,13 @@ impl AuthCache {
             expires_at: Instant::now() + ttl,
         };
         let mut map = self.inner.write().expect("lock poisoned");
-        map.insert(key, entry);
+        map.put(key, entry);
     }
 
     /// Evict the cached entry for `key`, forcing re-validation on the next request.
     pub fn invalidate(&self, key: &str) {
         let mut map = self.inner.write().expect("lock poisoned");
-        map.remove(key);
-    }
-
-    /// Remove all expired entries from the decision cache and the per-key lock
-    /// map.  Call this periodically (e.g. from a background task) to bound
-    /// memory growth under long-running, high-cardinality workloads.
-    ///
-    /// TODO(perf-4): done — call `AuthCache::sweep` from a background task spawned
-    /// at server startup.  A sweep interval of ~60 s is sufficient for most
-    /// deployments; set it lower if TTLs are very short.
-    pub fn sweep(&self) {
-        let now = Instant::now();
-        {
-            let mut map = self.inner.write().expect("lock poisoned");
-            map.retain(|_, entry| entry.expires_at > now);
-        }
-        // Remove per-key locks whose decision entry has been evicted.
-        // An unlocked mutex means no validation is in flight for that key.
-        self.locks.retain(|key, lock| {
-            // Keep the lock if a validation is actively in progress (i.e. the
-            // mutex is currently held).  try_lock succeeds only when it is free.
-            let still_cached = {
-                let map = self.inner.read().expect("lock poisoned");
-                map.contains_key(key.as_str())
-            };
-            let in_flight = lock.try_lock().is_err();
-            still_cached || in_flight
-        });
+        map.pop(key);
     }
 }
 
@@ -213,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn auth_cache_get_or_validate_behaviors() {
-        let cache = AuthCache::new();
+        let cache = AuthCache::new(AUTH_CACHE_DEFAULT_CAPACITY);
         let key = "auth_key";
 
         let calls = Arc::new(Mutex::new(0));
