@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-05-14
+
+### Chores
+- Cleanup gitignore
+
+- Fix spark warning test
+
+
+### Documentation
+- Update CHANGELOG for v0.6.0 [skip ci]
+
+
+### Fixed
+- **test**: Add minio backend integration and compatibility fixes
+
+- **ci**: Only trigger ci on tag push (release)
+
+
+### Testing
+- Add more tests, based on aws own s3 sdk tests -- garage does not implement some features, so xfail until alternative found
+
+
 ## [0.6.0] - 2026-05-13
 
 ### Added
@@ -234,7 +256,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Upgrade reqwest
 
-- Upgrade all dependencies (pingora 0.5->0.8, keep pyo3 0.25/reqwest 0.12)
+- Upgrade all dependencies (pingora 0.5→0.8, keep pyo3 0.25/reqwest 0.12)
 
 - Prep open
 
