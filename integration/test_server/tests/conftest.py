@@ -303,7 +303,57 @@ def spark_session(env: dict[str, str]):
     spark.stop()
 
 
-# ── MinIO env + fixtures ───────────────────────────────────────────────────────
+# ── DuckDB connection ──────────────────────────────────────────────────────────
+
+
+def _duckdb_connect(
+    host: str, port: str, access_key: str, secret_key: str, region: str
+):
+    import duckdb  # noqa: PLC0415
+
+    con = duckdb.connect()
+    con.execute("INSTALL httpfs")
+    con.execute("LOAD httpfs")
+    con.execute("SET s3_url_style='path'")
+    con.execute(f"SET s3_endpoint='{host}:{port}'")
+    con.execute(f"SET s3_access_key_id='{access_key}'")
+    con.execute(f"SET s3_secret_access_key='{secret_key}'")
+    con.execute(f"SET s3_region='{region}'")
+    con.execute("SET s3_use_ssl=false")
+    return con
+
+
+@pytest.fixture(scope="session")
+def duckdb_conn(backend: str, env: dict[str, str]):
+    """
+    A session-scoped DuckDB connection pre-configured with httpfs pointing at
+    the OSP proxy.  Parametrized via ``backend``: runs against both Garage and
+    MinIO (MinIO is skipped automatically when .env.minio is absent).
+
+    The ``httpfs`` extension is installed and loaded once; S3 credentials and
+    endpoint are configured via ``SET`` statements so every subsequent query
+    can use ``s3://`` paths transparently.
+    """
+    if backend == "garage":
+        con = _duckdb_connect(
+            host=env["OSP_PROXY_HOST"],
+            port=env["OSP_PROXY_PORT"],
+            access_key=env["OSP_CLIENT_ACCESS_KEY"],
+            secret_key=env["OSP_CLIENT_SECRET_KEY"],
+            region=env.get("GARAGE_REGION", "garage"),
+        )
+    else:
+        menv = _load_minio_env()
+        con = _duckdb_connect(
+            host=menv["OSP_PROXY_HOST"],
+            port=menv["OSP_PROXY_PORT"],
+            access_key=menv["OSP_CLIENT_ACCESS_KEY"],
+            secret_key=menv["OSP_CLIENT_SECRET_KEY"],
+            region=menv.get("MINIO_REGION", "us-east-1"),
+        )
+    yield con
+    con.close()
+
 
 ENV_MINIO_FILE = Path(__file__).parent.parent / ".env.minio"
 

@@ -12,6 +12,7 @@ dependencies = [
     "pytest-timeout>=2.3",
     "pyspark>=4.1.1",
     "jupyterlab>=4.5.7",
+    "duckdb>=1.1",
 ]
 
 [tool.pytest.ini_options]
@@ -21,6 +22,7 @@ testpaths = ["tests"]
 markers = [
     "spark: marks tests that require a running SparkSession against Garage (slower)",
     "spark_minio: marks tests that require a running SparkSession against MinIO (slower)",
+    "duckdb: marks tests that require DuckDB with httpfs against the OSP proxy",
 ]
 
 [tool.uv]

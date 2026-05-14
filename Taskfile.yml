@@ -163,6 +163,8 @@ tasks:
   #   task integration:test:spark         # Spark tests against all backends
   #   task integration:test:spark:garage  # Spark tests (Garage only)
   #   task integration:test:spark:minio   # Spark tests (MinIO only)
+  #   task integration:test:duckdb        # DuckDB tests against all backends
+  #   task integration:test:duckdb:fast   # DuckDB tests, stop on first failure
 
   integration:setup:
     desc: "Install Python deps for the integration test project"
@@ -305,16 +307,16 @@ tasks:
       - task: integration:minio:down
 
   integration:test:
-    desc: "Run integration tests against the running environment (excludes Spark)"
+    desc: "Run integration tests against the running environment (excludes Spark and DuckDB)"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -q -m 'not spark and not spark_minio'
+      - uv run pytest tests/ -q -m 'not spark and not spark_minio and not duckdb'
 
   integration:test:fast:
-    desc: "Run integration tests, stop on first failure (excludes Spark)"
+    desc: "Run integration tests, stop on first failure (excludes Spark and DuckDB)"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -q -x -m 'not spark and not spark_minio'
+      - uv run pytest tests/ -q -x -m 'not spark and not spark_minio and not duckdb'
 
   integration:test:spark:
     desc: "Run Spark s3a tests against all backends (Garage + MinIO)"
@@ -352,11 +354,24 @@ tasks:
     cmds:
       - uv run pytest tests/test_spark_minio.py -q -m spark_minio -x
 
-  integration:test:all:
-    desc: "Run full test suite including Spark tests"
+  integration:test:duckdb:
+    desc: "Run DuckDB httpfs tests against all backends (Garage + MinIO)"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -q
+      - uv run pytest tests/test_duckdb.py -q -m duckdb
+
+  integration:test:duckdb:fast:
+    desc: "Run DuckDB httpfs tests, stop on first failure"
+    dir: integration/test_server
+    cmds:
+      - uv run pytest tests/test_duckdb.py -q -m duckdb -x
+
+  integration:test:all:
+    desc: "Run full test suite including Spark and DuckDB tests"
+    cmds:
+      - task: integration:test
+      - task: integration:test:spark
+      - task: integration:test:duckdb
 
   integration:run:
     desc: "Automated: up -> test -> down (tears down even on failure)"
