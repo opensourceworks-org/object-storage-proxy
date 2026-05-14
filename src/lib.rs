@@ -344,6 +344,10 @@ pub struct MyCtx {
     /// Bucket name parsed from the request path in `request_filter`, reused by
     /// later stages to avoid redundant `parse_path` calls and map lock acquires.
     cached_bucket: Option<String>,
+    /// CosMapItem resolved in `request_filter` and reused by `upstream_peer`
+    /// to avoid a second `cos_mapping` RwLock read on every request.
+    /// TODO(perf-2): done — see upstream_peer
+    cached_bucket_config: Option<CosMapItem>,
 }
 
 // impl MyCtx {
@@ -376,6 +380,7 @@ impl ProxyHttp for MyProxy {
             is_presigned: None,
             stream_state: None,
             cached_bucket: None,
+            cached_bucket_config: None,
         }
     }
 
@@ -399,7 +404,12 @@ impl ProxyHttp for MyProxy {
                 .unwrap_or_default()
         });
 
-        let bucket_config = {
+        // Use the config cached by request_filter; fall back to a fresh lock
+        // read only for the rare case where upstream_peer is called without a
+        // preceding request_filter (e.g. direct Pingora internal calls).
+        let bucket_config = if ctx.cached_bucket_config.is_some() {
+            ctx.cached_bucket_config.clone()
+        } else {
             let map = ctx.cos_mapping.read().await;
             map.get(&hdr_bucket).cloned()
         };
@@ -624,6 +634,8 @@ impl ProxyHttp for MyProxy {
             let ttl = cfg.as_ref().and_then(|c| c.ttl).unwrap_or(0);
             (ttl, cfg)
         };
+        // Cache the resolved config so upstream_peer can skip a second lock read.
+        ctx.cached_bucket_config = bucket_config_init.clone();
         let mut access_key: String = String::new();
 
         if auth_header.is_empty() {
