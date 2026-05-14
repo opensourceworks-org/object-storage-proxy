@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Chores
+- Release v0.6.8
+
 - Release v0.6.7
 
 - First step cache
@@ -561,3 +563,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apply cargo fmt
 
 - Apply cargo fmt
+
+
+
