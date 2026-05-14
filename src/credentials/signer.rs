@@ -31,6 +31,10 @@ use crate::parsers::{
 const SHORT_DATE: &str = "%Y%m%d";
 const LONG_DATETIME: &str = "%Y%m%dT%H%M%SZ";
 
+/// SHA-256 digest of an empty byte string — pre-computed constant to avoid
+/// hashing an empty body on every GET/HEAD/DELETE re-sign.
+const SHA256_EMPTY: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
 // AwsSign copied and modified from https://github.com/psnszsn/aws-sign-v4
 
 /// Low-level AWS Signature Version 4 signing primitive.
@@ -247,26 +251,26 @@ where
     /// Otherwise `x-amz-copy-source-if-match` would sort before `x-amz-copy-source`
     /// because `-` (ASCII 45) < `:` (ASCII 58).
     pub fn canonical_header_string(&'a self) -> String {
-        let mut keyvalues: Vec<(String, &str)> = self
-            .headers
+        // Keys are already lowercased in AwsSign::new; borrow them directly.
+        let mut keyvalues: Vec<(&str, &str)> = (&self.headers)
             .into_iter()
-            .map(|(key, value)| (key.to_lowercase(), value.trim()))
+            .map(|(key, value)| (key.as_str(), value.as_str()))
             .collect();
-        keyvalues.sort_by(|a, b| a.0.cmp(&b.0));
+        keyvalues.sort_by_key(|(k, _)| *k);
         keyvalues
-            .into_iter()
-            .map(|(key, value)| format!("{}:{}", key, value))
-            .collect::<Vec<String>>()
+            .iter()
+            .map(|(key, value)| format!("{}:{}", key, value.trim()))
+            .collect::<Vec<_>>()
             .join("\n")
     }
 
     /// Return the semicolon-separated list of signed header names (lowercase, sorted).
     pub fn signed_header_string(&'a self) -> String {
-        let mut keys = self
-            .headers
+        // Keys are already lowercased in AwsSign::new; borrow them directly.
+        let mut keys: Vec<&str> = (&self.headers)
             .into_iter()
-            .map(|(key, _)| key.to_lowercase())
-            .collect::<Vec<String>>();
+            .map(|(k, _)| k.as_str())
+            .collect();
         keys.sort();
         keys.join(";")
     }
@@ -301,25 +305,69 @@ where
     ///
     /// The returned string can be set directly on the outgoing request with
     /// `request.insert_header("authorization", sign_result)`.
+    ///
+    /// Optimised to sort the header map **once** and compute the credential
+    /// scope **once**, avoiding the redundant work that would occur if
+    /// `canonical_request()` and `signed_header_string()` were called
+    /// separately.
     pub fn sign(&'a self) -> String {
-        let canonical = self.canonical_request();
-        let string_to_sign = string_to_sign(self.datetime, self.region, &canonical, self.service);
-        let signing_key = signing_key(self.datetime, self.secret_key, self.region, self.service);
-        let key = ring::hmac::Key::new(
-            ring::hmac::HMAC_SHA256,
-            &signing_key.expect("signing key derivation failed"),
+        // Scope is embedded in both the string-to-sign and the Credential= field.
+        let scope = scope_string(self.datetime, self.region, self.service);
+
+        // Sort header pairs once; derive canonical-headers and signed-headers
+        // strings from the same sorted slice instead of sorting twice.
+        let mut kv: Vec<(&str, &str)> = (&self.headers)
+            .into_iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        kv.sort_by_key(|(k, _)| *k);
+        let canonical_headers = kv
+            .iter()
+            .map(|(k, v)| format!("{}:{}", k, v.trim()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let signed_headers = kv.iter().map(|(k, _)| *k).collect::<Vec<_>>().join(";");
+
+        // Payload line — same logic as canonical_request() but without the clone().
+        let payload_owned;
+        let payload_line: &str = if let Some(ov) = &self.payload_override {
+            ov.as_str()
+        } else if self.body == b"UNSIGNED-PAYLOAD" {
+            "UNSIGNED-PAYLOAD"
+        } else if self.body == b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
+            "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
+        } else {
+            payload_owned = digest(self.body);
+            &payload_owned
+        };
+
+        let canonical = format!(
+            "{}\n{}\n{}\n{}\n\n{}\n{}",
+            self.method,
+            self.url.path(),
+            canonical_query_string(&self.url),
+            canonical_headers,
+            signed_headers,
+            payload_line,
         );
-        let tag = ring::hmac::sign(&key, string_to_sign.as_bytes());
-        let signature = hex::encode(tag.as_ref());
-        let signed_headers = self.signed_header_string();
+
+        let canonical_hash =
+            hex::encode(ring::digest::digest(&ring::digest::SHA256, canonical.as_bytes()).as_ref());
+        let sts = format!(
+            "AWS4-HMAC-SHA256\n{}\n{}\n{}",
+            self.datetime.format(LONG_DATETIME),
+            scope,
+            canonical_hash,
+        );
+
+        let sk = signing_key(self.datetime, self.secret_key, self.region, self.service)
+            .expect("signing key derivation failed");
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &sk);
+        let signature = hex::encode(ring::hmac::sign(&key, sts.as_bytes()).as_ref());
 
         let sign_string = format!(
-            "AWS4-HMAC-SHA256 Credential={access_key}/{scope},\
-             SignedHeaders={signed_headers},Signature={signature}",
-            access_key = self.access_key,
-            scope = scope_string(self.datetime, self.region, self.service),
-            signed_headers = signed_headers,
-            signature = signature
+            "AWS4-HMAC-SHA256 Credential={}/{},SignedHeaders={},Signature={}",
+            self.access_key, scope, signed_headers, signature
         );
         debug!("sign_string: {}", sign_string);
         sign_string
@@ -334,12 +382,12 @@ pub fn uri_encode(string: &str, encode_slash: bool) -> String {
             '/' if encode_slash => result.push_str("%2F"),
             '/' if !encode_slash => result.push('/'),
             _ => {
-                result.push_str(
-                    &format!("{}", c)
-                        .bytes()
-                        .map(|b| format!("%{:02X}", b))
-                        .collect::<String>(),
-                );
+                // Encode each UTF-8 byte without extra heap allocations.
+                let mut buf = [0u8; 4];
+                for b in c.encode_utf8(&mut buf).bytes() {
+                    use std::fmt::Write;
+                    let _ = write!(result, "%{b:02X}");
+                }
             }
         }
     }
@@ -401,7 +449,7 @@ pub fn signing_key(
     );
 
     let region_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, date_tag.as_ref());
-    let region_tag = ring::hmac::sign(&region_key, region.to_string().as_bytes());
+    let region_tag = ring::hmac::sign(&region_key, region.as_bytes());
 
     let service_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, region_tag.as_ref());
     let service_tag = ring::hmac::sign(&service_key, service.as_bytes());
@@ -455,7 +503,7 @@ pub(crate) async fn sign_request(
     )?;
     // let payload_hash = if method == "GET" || method == "HEAD" || method == "DELETE" {
     //     // spec uses empty‑body hash for reads
-    //     &sha256::digest(b"")
+    //     SHA256_EMPTY
     // } else {
     //     // for streaming uploads we sign UNSIGNED‑PAYLOAD
     //     "UNSIGNED-PAYLOAD"
@@ -470,18 +518,18 @@ pub(crate) async fn sign_request(
         Some(h) => h,
 
         // empty-body requests (GET/HEAD/DELETE) -> spec hash of “”
-        None if matches!(method.as_str(), "GET" | "HEAD" | "DELETE") => &sha256::digest(b""),
+        None if matches!(method.as_str(), "GET" | "HEAD" | "DELETE") => SHA256_EMPTY,
 
         // default for uploads over TLS
         _ => "UNSIGNED-PAYLOAD",
     };
 
     let payload_hash_value = payload_hash.to_string();
-    request.insert_header("x-amz-content-sha256", payload_hash_value.clone())?;
+    request.insert_header("x-amz-content-sha256", payload_hash_value.as_str())?;
 
-    let body_bytes: &[u8] = match payload_hash_value.clone().as_str() {
+    let body_bytes: &[u8] = match payload_hash_value.as_str() {
         // empty body -> empty slice
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" => &[], // sha256 hash of empty string
+        SHA256_EMPTY => &[],
         "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
         "STREAMING-UNSIGNED-PAYLOAD-TRAILER" => b"STREAMING-UNSIGNED-PAYLOAD-TRAILER",
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" => b"STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
@@ -504,16 +552,7 @@ pub(crate) async fn sign_request(
     debug!("{:#?}", &auth_header);
 
     let mut signer = auth_header;
-
-    // if payload_hash_value.starts_with("STREAMING-") {
-    //     // don’t hash the literal bytes – embed the magic string itself
-    //     signer.set_payload_override(payload_hash_value.to_string());
-    // }
-    // if payload_hash_value != "UNSIGNED-PAYLOAD" {
-    //     signer.set_payload_override(payload_hash_value.to_string());
-    // }
-
-    signer.set_payload_override(payload_hash_value.clone());
+    signer.set_payload_override(payload_hash_value); // move, no clone
 
     let signature = signer.sign();
     debug!("{:#?}", signature);

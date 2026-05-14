@@ -16,3 +16,4 @@ integration/docker/jars/
 target/
 libobject_storage_proxy.so
 .env.minio
+.proxy.pid

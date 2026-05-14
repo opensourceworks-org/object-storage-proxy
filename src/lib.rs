@@ -526,46 +526,8 @@ impl ProxyHttp for MyProxy {
 
         debug!(summary = ?session.request_summary(), "request summary");
         debug!(uri = ?session.req_header().uri, "incoming request URI");
-
-        let request_query = session.req_header().uri.query().unwrap_or("");
-        info!("request path: {}", session.req_header().uri.path());
-        info!("request query: {}", request_query);
-        info!("request method : {}", session.req_header().method);
-
-        let parsed_query_result = parse_query(request_query);
-
-        if parsed_query_result.is_err() {
-            error!("Failed to parse query: {:?}", parsed_query_result);
-            return Err(pingora::Error::new_str("Failed to parse query"));
-        }
-        let (rest, mut query_dict) = parsed_query_result.expect("checked above");
-        if rest.is_empty() {
-            info!("Parsed query: {:#?}", query_dict);
-        } else {
-            error!("Failed to parse query: {}", rest);
-        }
-
-        query_dict.insert(
-            "method".to_string(),
-            session.req_header().method.to_string(),
-        );
-        query_dict.insert(
-            "path".to_string(),
-            session.req_header().uri.path().to_string(),
-        );
-        // insert source
-        query_dict.insert(
-            "source".to_string(),
-            session
-                .req_header()
-                .headers
-                .get("x-forwarded-for")
-                .and_then(|h| h.to_str().ok())
-                .unwrap_or_default()
-                .to_string(),
-        );
-
-        info!("---> Parsed query: {:#?}", query_dict);
+        debug!("request path: {}", session.req_header().uri.path());
+        debug!("request method: {}", session.req_header().method);
 
         if session
             .req_header()
@@ -681,14 +643,14 @@ impl ProxyHttp for MyProxy {
                 .query()
                 .is_some_and(|q| q.contains("uploadId="));
 
-            info!("CHECKING SIGNATURE");
+            debug!("checking signature");
             if let Some(skip) = self.skip_signature_validation {
                 if skip || is_multipart {
-                    info!("Skipping local signature check");
+                    debug!("Skipping local signature check");
                     // continue
                 } else {
                     // presigned
-                    info!("Checking presigned signature");
+                    debug!("Checking presigned signature");
                     let uri_q = session.req_header().uri.query().unwrap_or("");
 
                     if auth_header.is_empty() && uri_q.contains("X-Amz-Signature") {
@@ -714,7 +676,7 @@ impl ProxyHttp for MyProxy {
                                         ctx.hmac_keystore
                                             .write()
                                             .await
-                                            .insert(access_key.clone().to_string(), secret_key);
+                                            .insert(access_key.clone(), secret_key);
                                     }
                                     Err(_) => {
                                         // no key -> unauthorized
@@ -775,7 +737,7 @@ impl ProxyHttp for MyProxy {
                                 return Err(pingora::Error::new_str("Failed to check signature"));
                             }
                         };
-                        info!("is signature valid?: {}", ok);
+                        debug!("is signature valid?: {}", ok);
                         if !ok {
                             let msg = format!(
                                 "Signature invalid for presigned URL: {}",
@@ -785,7 +747,7 @@ impl ProxyHttp for MyProxy {
                             return Ok(true);
                         }
                     } else {
-                        info!("processing a regular request");
+                        debug!("processing a regular request");
 
                         let has_key = {
                             let map = ctx.hmac_keystore.read().await;
@@ -803,7 +765,7 @@ impl ProxyHttp for MyProxy {
                                         ctx.hmac_keystore
                                             .write()
                                             .await
-                                            .insert(access_key.clone().to_string(), secret_key);
+                                            .insert(access_key.clone(), secret_key);
                                     }
                                     Err(_) => {
                                         // no key -> unauthorized
@@ -833,7 +795,7 @@ impl ProxyHttp for MyProxy {
                             map.get(&access_key).cloned()
                         };
 
-                        info!("Checking signature");
+                        debug!("checking signature");
                         let sig_ok = match signature_is_valid_for_request(
                             &auth_header,
                             session,
@@ -843,7 +805,7 @@ impl ProxyHttp for MyProxy {
                         {
                             Ok(true) => true,
                             Ok(false) => {
-                                info!("Signature invalid");
+                                debug!("Signature invalid");
                                 false
                             }
                             Err(err) => {
@@ -866,7 +828,33 @@ impl ProxyHttp for MyProxy {
                     }
                 }
             }
-            info!("Signature check passed, continuing now onto the bespoke validation");
+            debug!("Signature check passed, continuing now onto the bespoke validation");
+            // Build the query dict here — deferred so requests without a validator
+            // pay no parsing cost at all.
+            let request_query = session.req_header().uri.query().unwrap_or("");
+            let (_, mut query_dict) = parse_query(request_query).map_err(|e| {
+                error!("Failed to parse query: {:?}", e);
+                pingora::Error::new_str("Failed to parse query")
+            })?;
+            query_dict.insert(
+                "method".to_string(),
+                session.req_header().method.to_string(),
+            );
+            query_dict.insert(
+                "path".to_string(),
+                session.req_header().uri.path().to_string(),
+            );
+            query_dict.insert(
+                "source".to_string(),
+                session
+                    .req_header()
+                    .headers
+                    .get("x-forwarded-for")
+                    .and_then(|h| h.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+            debug!("Parsed query: {:#?}", query_dict);
             let cache_key = format!("{}:{}:{:?}", &access_key, bucket, &query_dict);
             debug!("Cache key: {}", cache_key);
 
@@ -896,7 +884,7 @@ impl ProxyHttp for MyProxy {
         };
 
         if !is_authorized {
-            info!("Access denied for bucket: {}.  End of request.", bucket);
+            warn!("Access denied for bucket: {}.  End of request.", bucket);
             // session.respond_error(401).await?;
             write_error_response_with_header(
                 session,
@@ -1121,19 +1109,20 @@ impl ProxyHttp for MyProxy {
             "expect",
         ];
 
-        let to_check: Vec<String> = upstream_request
+        let to_remove: Vec<String> = upstream_request
             .headers
             .iter()
-            .map(|(name, _)| name.as_str().to_owned())
+            .filter_map(|(name, _)| {
+                let n = name.as_str();
+                let keep = allowed.contains(&n)
+                    || n.starts_with("x-amz-checksum-")
+                    || n.starts_with("x-amz-meta-");
+                if keep { None } else { Some(n.to_owned()) }
+            })
             .collect();
 
-        for name in to_check {
-            let keep = allowed.contains(&name.as_str())
-                || name.starts_with("x-amz-checksum-")
-                || name.starts_with("x-amz-meta-");
-            if !keep {
-                let _ = upstream_request.remove_header(&name);
-            }
+        for name in to_remove {
+            let _ = upstream_request.remove_header(&name);
         }
 
         if maybe_hmac {
