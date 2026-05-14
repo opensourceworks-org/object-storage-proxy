@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.3] - 2026-05-14
 
+### Chores
+- Release v0.6.3
+
+
 ### Documentation
 - Update CHANGELOG for v0.6.2 [skip ci]
 
@@ -493,3 +497,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apply cargo fmt
 
 - Apply cargo fmt
+
+
+
