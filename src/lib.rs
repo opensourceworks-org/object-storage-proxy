@@ -320,6 +320,11 @@ pub struct MyProxy {
     max_presign_url_usage_attempts: Option<usize>,
     #[allow(dead_code)]
     server_name: String,
+    /// Cached result of `inspect.signature` on the validator callable:
+    /// `true`  = validator accepts a third `request: dict` argument.
+    /// `false` = validator only takes `(token, bucket)`.
+    /// `None`  = no validator configured.
+    validator_takes_request: Option<bool>,
 }
 
 /// Per-request context threaded through the Pingora middleware chain.
@@ -855,24 +860,35 @@ impl ProxyHttp for MyProxy {
                     .to_string(),
             );
             debug!("Parsed query: {:#?}", query_dict);
-            let cache_key = format!("{}:{}:{:?}", &access_key, bucket, &query_dict);
+            // Cache key: access_key + bucket + HTTP method only.
+            // Volatile query params (uploadId, X-Amz-Date, etc.) must NOT be
+            // included — they differ on every request and would make the cache
+            // useless.
+            let method_str = session.req_header().method.as_str();
+            let cache_key = format!("{}:{}:{}", &access_key, bucket, method_str);
             debug!("Cache key: {}", cache_key);
+
+            // Default 300-second TTL so the cache is always effective.
+            // ttl=0 in the bucket config means "use default", not "disable caching".
+            // Set ttl to u64::MAX in the bucket config to opt out of expiry.
+            let effective_ttl = Duration::from_secs(if ttl == 0 { 300 } else { ttl });
 
             let bucket_clone = bucket.to_string();
             let callback_clone: PyObject = Python::with_gil(|py| py_cb.clone_ref(py));
 
             let move_access_key = access_key.clone();
             let req = query_dict.clone();
+            let takes_request = self.validator_takes_request.unwrap_or(false);
 
             ctx.auth_cache
-                .get_or_validate(&cache_key, Duration::from_secs(ttl), move || {
+                .get_or_validate(&cache_key, effective_ttl, move || {
                     let tk = move_access_key.clone();
                     let bu = bucket_clone.clone();
                     let cb = Python::with_gil(|py| callback_clone.clone_ref(py));
                     {
                         let req_value = req.clone();
                         async move {
-                            validate_request(&tk, &bu, &req_value, cb)
+                            validate_request(&tk, &bu, &req_value, cb, takes_request)
                                 .await
                                 .map_err(|_| pingora::Error::new_str("Validator error"))
                         }
@@ -1465,6 +1481,11 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
     let validator = run_args.validator.as_ref().map(|v| v.clone_ref(py));
     let hmac_fetcher = run_args.hmac_fetcher.as_ref().map(|v| v.clone_ref(py));
 
+    // Inspect the validator callable's arity once at startup.
+    let validator_takes_request = run_args.validator.as_ref().map(|v| {
+        Python::with_gil(|py| utils::functions::callable_accepts_request(py, v).unwrap_or(false))
+    });
+
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,
         MyProxy {
@@ -1484,6 +1505,7 @@ pub fn run_server(py: Python, run_args: &ProxyServerConfig) {
             tracker: UrlTracker::new(),
             max_presign_url_usage_attempts: run_args.max_presign_url_usage_attempts,
             server_name: "<osp⚡>".to_string(),
+            validator_takes_request,
         },
     );
 

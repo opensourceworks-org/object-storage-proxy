@@ -21,7 +21,7 @@ pub fn print_banner() {
                                ██
                                ██
 
-  <osp⚡>  Object Storage Proxy  v{}
+  <osp ⚡>  Object Storage Proxy  v{}
   󱃖 https://osp.flexworks.eu/
   󰂿 https://osp-docs.flexworks.eu/
   󰊤 https://github.com/opensourceworks-org/object-storage-proxy

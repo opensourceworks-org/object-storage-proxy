@@ -8,8 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::utils::functions::callable_accepts_request;
-
 #[derive(Clone, Debug)]
 struct AuthEntry {
     authorized: bool,
@@ -116,18 +114,15 @@ impl AuthCache {
 
 /// Invoke the Python validator callback for a single request.
 ///
-/// Inspects the callable's signature at runtime (via Python's `inspect` module)
-/// to determine whether it accepts a third `request: dict` argument.  The call
-/// is dispatched on a [`tokio::task::spawn_blocking`] thread so that the Python
-/// GIL does not block the async runtime.
-///
-/// Returns `Ok(true)` if the callback approves the request, `Ok(false)` if it
-/// denies it, or `Err(String)` on any Python exception.
+/// `takes_request` must be pre-computed once (e.g. at server startup via
+/// [`callable_accepts_request`]) and passed here to avoid re-running
+/// `inspect.signature` on every cache miss.
 pub async fn validate_request(
     token: &str,
     bucket: &str,
     request: &HashMap<String, String>,
     callback: PyObject,
+    takes_request: bool,
 ) -> Result<bool, String> {
     let token = token.to_string();
     let bucket = bucket.to_string();
@@ -138,18 +133,6 @@ pub async fn validate_request(
         .collect::<HashMap<String, String>>();
 
     debug!("request details sent to Python callable: {:?}", &req);
-
-    let takes_request = Python::with_gil(|py| {
-        callable_accepts_request(py, &callback)
-            .map_err(|e| format!("Invalid callable signature: {:?}", e))
-    });
-
-    if takes_request.is_err() {
-        return Err(format!("Invalid callable signature: {:?}", takes_request));
-    }
-    let takes_request = takes_request.expect("checked above");
-
-    debug!("Python callable can take request: {:?}", &takes_request);
 
     let authorized = if takes_request {
         task::spawn_blocking(move || {
