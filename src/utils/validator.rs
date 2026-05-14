@@ -1,3 +1,4 @@
+use dashmap::DashMap;
 use pyo3::{PyObject, Python};
 use tokio::{sync::Mutex, task};
 use tracing::{debug, error};
@@ -18,14 +19,19 @@ struct AuthEntry {
 ///
 /// Wraps arbitrary async validator functions so that the (potentially
 /// expensive) Python callback is only invoked once per `(access_key, bucket,
-/// query)` tuple within the configured TTL window.
+/// method)` tuple within the configured TTL window.
 ///
-/// Concurrent cache misses for the same key are serialized via a per-key
-/// [`Mutex`] to avoid thundering-herd stampedes.
+/// Concurrent cache misses for the **same** key are serialised via a per-key
+/// [`Mutex`] to avoid thundering-herd stampedes.  Misses for **different** keys
+/// are fully concurrent — the per-key lock map is backed by a [`DashMap`] so
+/// no single global lock is held while looking up or inserting an entry.
 #[derive(Clone, Debug)]
 pub struct AuthCache {
     inner: Arc<RwLock<HashMap<String, AuthEntry>>>,
-    locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    /// Per-key mutex map.  Using DashMap instead of Mutex<HashMap<…>> means
+    /// concurrent misses for different keys never contend on a shared lock.
+    /// TODO(perf-3): done
+    locks: Arc<DashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl Default for AuthCache {
@@ -38,7 +44,7 @@ impl AuthCache {
     pub fn new() -> Self {
         AuthCache {
             inner: Arc::new(RwLock::new(HashMap::new())),
-            locks: Arc::new(Mutex::new(HashMap::new())),
+            locks: Arc::new(DashMap::new()),
         }
     }
 
@@ -62,15 +68,18 @@ impl AuthCache {
             return Ok(entry.authorized);
         }
         debug!("Cache miss for key. Validating authorization...");
-        let key_lock = {
-            let mut locks_map = self.locks.lock().await;
-            locks_map
-                .entry(key.to_string())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone()
-        };
+
+        // Obtain (or lazily create) the per-key mutex without holding a global
+        // lock across the async validation call.
+        let key_lock = self
+            .locks
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
         let _guard = key_lock.lock().await;
 
+        // Double-checked locking: another task may have populated the entry
+        // while we were waiting for the per-key mutex.
         if let Some(entry) = {
             let map = self.inner.read().expect("lock poisoned");
             map.get(key).cloned()
