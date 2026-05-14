@@ -149,7 +149,7 @@ tasks:
   #   task integration:up           # full stack (garage + bootstrap + proxy)
   #   task integration:down         # tear everything down
   #   task integration:test         # run tests against whatever is running
-  #   task integration:run          # automated: up → test → down
+  #   task integration:run          # automated: up -> test -> down
   #
   #   task integration:garage:up    # just Garage (stays running)
   #   task integration:garage:bootstrap   # create bucket + key, write .env
@@ -208,7 +208,7 @@ tasks:
       - uv run python bootstrap.py
 
   integration:server:start:
-    desc: "Start the OSP proxy in the background (logs → integration/test_server/proxy.log)"
+    desc: "Start the OSP proxy in the background (logs -> integration/test_server/proxy.log)"
     cmds:
       - |
         nohup uv run --no-sync python integration/test_server/server.py \
@@ -243,14 +243,14 @@ tasks:
       - tail -f integration/test_server/proxy.log
 
   integration:up:
-    desc: "Full environment: Garage up → bootstrap → proxy start"
+    desc: "Full environment: Garage up -> bootstrap -> proxy start"
     cmds:
       - task: integration:garage:up
       - task: integration:garage:bootstrap
       - task: integration:server:start
 
   integration:down:
-    desc: "Tear down: stop proxy → stop Garage"
+    desc: "Tear down: stop proxy -> stop Garage"
     cmds:
       - task: integration:server:stop
       - task: integration:garage:down
@@ -259,34 +259,34 @@ tasks:
     desc: "Run integration tests against the running environment (excludes Spark)"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -v -m 'not spark'
+      - uv run pytest tests/ -q -m 'not spark'
 
   integration:test:fast:
     desc: "Run integration tests, stop on first failure (excludes Spark)"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -v -x -m 'not spark'
+      - uv run pytest tests/ -q -x -m 'not spark'
 
   integration:test:spark:
     desc: "Run only the Spark s3a tests"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/test_spark.py -v -m spark
+      - uv run pytest tests/test_spark.py -q -m spark
 
   integration:test:spark:fast:
     desc: "Run Spark tests, stop on first failure"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/test_spark.py -v -m spark -x
+      - uv run pytest tests/test_spark.py -q -m spark -x
 
   integration:test:all:
     desc: "Run full test suite including Spark tests"
     dir: integration/test_server
     cmds:
-      - uv run pytest tests/ -v
+      - uv run pytest tests/ -q
 
   integration:run:
-    desc: "Automated: up → test → down (tears down even on failure)"
+    desc: "Automated: up -> test -> down (tears down even on failure)"
     cmds:
       - task: integration:up
       - defer: {task: integration:down}

@@ -129,10 +129,10 @@ impl<'a> AwsSign<'a, HashMap<String, String>> {
 
                 // ─── decide whether to keep `name` ──────────────────────────
                 let keep = if let Some(ref set) = signed_allow {
-                    // verifier path → keep exactly what the client signed
+                    // verifier path -> keep exactly what the client signed
                     set.contains(name.as_str())
                 } else {
-                    // re-signing path → keep the full streaming whitelist
+                    // re-signing path -> keep the full streaming whitelist
                     name == "host"
                         || name.starts_with("x-amz-")
                         || matches!(
@@ -466,10 +466,10 @@ pub(crate) async fn sign_request(
         .and_then(|v| v.to_str().ok());
 
     let payload_hash = match payload_hdr {
-        // client already supplied one → keep it verbatim
+        // client already supplied one -> keep it verbatim
         Some(h) => h,
 
-        // empty-body requests (GET/HEAD/DELETE) → spec hash of “”
+        // empty-body requests (GET/HEAD/DELETE) -> spec hash of “”
         None if matches!(method.as_str(), "GET" | "HEAD" | "DELETE") => &sha256::digest(b""),
 
         // default for uploads over TLS
@@ -480,7 +480,7 @@ pub(crate) async fn sign_request(
     request.insert_header("x-amz-content-sha256", payload_hash_value.clone())?;
 
     let body_bytes: &[u8] = match payload_hash_value.clone().as_str() {
-        // empty body → empty slice
+        // empty body -> empty slice
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" => &[], // sha256 hash of empty string
         "UNSIGNED-PAYLOAD" => b"UNSIGNED-PAYLOAD",
         "STREAMING-UNSIGNED-PAYLOAD-TRAILER" => b"STREAMING-UNSIGNED-PAYLOAD-TRAILER",

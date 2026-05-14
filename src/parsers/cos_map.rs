@@ -45,8 +45,8 @@ impl CosMapItem {
 
     /// Ensure that **some** credential (HMAC or API key) is populated.
     ///
-    /// * If HMAC pair exists → OK
-    /// * Else if api_key exists → OK
+    /// * If HMAC pair exists -> OK
+    /// * Else if api_key exists -> OK
     /// * Else it calls the supplied async `fetcher(bucket)` which
     ///   should return one of the accepted formats (see [`BucketCredential`]).
     ///   The struct is then updated in‑place.

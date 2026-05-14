@@ -48,8 +48,8 @@ pub static REQUEST_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     counter
 });
 
-/// Bytes transferred, labelled by direction (`rx` = client→proxy,
-/// `tx` = proxy→client) and bucket.
+/// Bytes transferred, labelled by direction (`rx` = client->proxy,
+/// `tx` = proxy->client) and bucket.
 pub static TRANSFER_BYTES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     let opts = Opts::new("osp_transfer_bytes_total", "Total bytes transferred").namespace("osp");
     let counter = IntCounterVec::new(opts, &["direction", "bucket"])

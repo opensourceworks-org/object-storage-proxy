@@ -18,14 +18,14 @@
 | `task test:rust` | Rust unit tests via `cargo nextest` |
 | `task test:rust:cargo` | Rust unit tests via plain `cargo test` |
 | `task test:integration` | run `test_integration.sh` |
-| `task test` | build → `test:rust` → `test:integration` |
+| `task test` | build -> `test:rust` -> `test:integration` |
 | `task fmt` | `cargo fmt` |
 | `task lint` | `cargo clippy -- -D warnings` |
-| `task wheel` | debug wheel → `target/wheels/` |
-| `task wheel:release` | release wheel → `target/wheels/` |
+| `task wheel` | debug wheel -> `target/wheels/` |
+| `task wheel:release` | release wheel -> `target/wheels/` |
 | `task clean` | remove Rust artefacts and `.venv` |
 | `task clean:wheels` | remove `target/wheels/` only |
-| `task integration:run` | automated integration test: up → test → down |
+| `task integration:run` | automated integration test: up -> test -> down |
 | `task integration:up` | start Garage + bootstrap + OSP proxy |
 | `task integration:down` | stop proxy + stop Garage |
 | `task integration:test` | run pytest suite (excludes Spark) |
@@ -131,13 +131,13 @@ pip install target/wheels/object_storage_proxy-*.whl
 Copy `.env.example` to `.env` (if provided) or export the variables manually, then run:
 
 ```bash
-task run          # dev build → start test_server.py
-task run:release  # release build → start test_server.py
+task run          # dev build -> start test_server.py
+task run:release  # release build -> start test_server.py
 ```
 
 The server listens on:
-- HTTP  → `0.0.0.0:6190`
-- HTTPS → `0.0.0.0:8443`
+- HTTP  -> `0.0.0.0:6190`
+- HTTPS -> `0.0.0.0:8443`
 
 ---
 
@@ -146,7 +146,7 @@ The server listens on:
 ```bash
 task test:rust        # Rust unit tests via cargo nextest (recommended)
 task test:rust:cargo  # Rust unit tests via plain cargo test
-task test             # full suite: build → rust tests → integration tests
+task test             # full suite: build -> rust tests -> integration tests
 ```
 
 `cargo nextest` runs tests in parallel and gives richer output.  Install it once with:
@@ -322,7 +322,7 @@ The integration test suite runs OSP against a real [Garage](https://garagehq.deu
 
 ```bash
 task integration:setup    # install test Python deps (once)
-task integration:run      # garage up → bootstrap → proxy → test → teardown
+task integration:run      # garage up -> bootstrap -> proxy -> test -> teardown
 ```
 
 `integration:run` tears everything down even if tests fail.
@@ -357,16 +357,16 @@ task integration:garage:destroy  # also wipe Garage data volumes
 | Task | Description |
 |------|-------------|
 | `integration:setup` | `uv sync` in `integration/test_server/` |
-| `integration:up` | Garage up → bootstrap → proxy start |
-| `integration:down` | Stop proxy → stop Garage |
-| `integration:run` | Automated: up → test → down (teardown on failure too) |
+| `integration:up` | Garage up -> bootstrap -> proxy start |
+| `integration:down` | Stop proxy -> stop Garage |
+| `integration:run` | Automated: up -> test -> down (teardown on failure too) |
 | `integration:garage:up` | Start the Garage Docker container |
 | `integration:garage:down` | Stop and remove the container |
 | `integration:garage:destroy` | Stop container **and** remove data volumes |
 | `integration:garage:bootstrap` | Create bucket + HMAC key in Garage, write `.env` |
 | `integration:garage:logs` | Follow Garage container logs |
 | `integration:garage:status` | Query Garage cluster status via admin API |
-| `integration:server:start` | Start OSP proxy in the background (logs → `proxy.log`) |
+| `integration:server:start` | Start OSP proxy in the background (logs -> `proxy.log`) |
 | `integration:server:stop` | Stop the background proxy |
 | `integration:server:logs` | Tail the proxy log |
 | `integration:test` | Run pytest suite against the running environment |

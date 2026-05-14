@@ -36,7 +36,7 @@
 
 #![warn(clippy::all)]
 use async_trait::async_trait;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use credentials::signer::{
     self, resign_streaming_request, signature_is_valid_for_presigned,
     signature_is_valid_for_request,
@@ -44,7 +44,7 @@ use credentials::signer::{
 use dashmap::DashMap;
 use dotenv::dotenv;
 use http::uri::Authority;
-use http::{StatusCode, Uri};
+use http::{Method, StatusCode, Uri};
 use parsers::cos_map::{CosMapItem, parse_cos_map};
 use parsers::keystore::parse_hmac_list;
 use pingora::Result;
@@ -304,7 +304,7 @@ impl ProxyServerConfig {
 ///
 /// One instance is created per server and shared (via [`Arc`]) across all worker
 /// threads.  It implements [`ProxyHttp`] and drives the full request lifecycle:
-/// signature validation → authorization → credential injection → upstream routing.
+/// signature validation -> authorization -> credential injection -> upstream routing.
 pub struct MyProxy {
     cos_endpoint: String,
     cos_mapping: Arc<RwLock<HashMap<String, CosMapItem>>>,
@@ -589,6 +589,42 @@ impl ProxyHttp for MyProxy {
 
         let path = session.req_header().uri.path().to_owned();
 
+        // ── ListBuckets short-circuit ────────────────────────────────────────────
+        // GET / has no bucket component; parse_path would error.  Return the list
+        // of buckets that are configured in the cos_mapping.
+        if path == "/" && session.req_header().method == Method::GET {
+            let bucket_names: Vec<String> = {
+                let map = ctx.cos_mapping.read().await;
+                let mut names: Vec<String> = map.keys().cloned().collect();
+                names.sort();
+                names
+            };
+            let entries: String = bucket_names
+                .iter()
+                .map(|n| {
+                    format!(
+                        "<Bucket><Name>{n}</Name>\
+<CreationDate>2000-01-01T00:00:00.000Z</CreationDate></Bucket>"
+                    )
+                })
+                .collect();
+            let body = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\
+<Owner><ID>proxy</ID><DisplayName>proxy</DisplayName></Owner>\
+<Buckets>{entries}</Buckets>\
+</ListAllMyBucketsResult>"
+            );
+            let body_bytes = Bytes::copy_from_slice(body.as_bytes());
+            let mut hdr = ResponseHeader::build(StatusCode::OK, None)?;
+            hdr.insert_header("Content-Type", "application/xml")?;
+            hdr.insert_header("Content-Length", body_bytes.len().to_string())?;
+            hdr.insert_header("Server", DEFAULT_SERVER_NAME)?;
+            session.write_response_header(Box::new(hdr), false).await?;
+            session.write_response_body(Some(body_bytes), true).await?;
+            return Ok(true);
+        }
+
         let parse_path_result = parse_path(&path);
         if parse_path_result.is_err() {
             error!("Failed to parse path: {:?}", parse_path_result);
@@ -684,7 +720,7 @@ impl ProxyHttp for MyProxy {
                                             .insert(access_key.clone().to_string(), secret_key);
                                     }
                                     Err(_) => {
-                                        // no key → unauthorized
+                                        // no key -> unauthorized
                                         write_error_response_with_header(
                                             session,
                                             StatusCode::UNAUTHORIZED,
@@ -773,7 +809,7 @@ impl ProxyHttp for MyProxy {
                                             .insert(access_key.clone().to_string(), secret_key);
                                     }
                                     Err(_) => {
-                                        // no key → unauthorized
+                                        // no key -> unauthorized
                                         // session.respond_error(401).await?;
                                         write_error_response_with_header(
                                             session,
@@ -890,7 +926,7 @@ impl ProxyHttp for MyProxy {
                     move |bucket: String| async move {
                         get_credential_for_bucket(&cb, bucket, access_key)
                             .await
-                            .map_err(|e| e.into()) // Convert PyErr → Box<dyn Error>
+                            .map_err(|e| e.into()) // Convert PyErr -> Box<dyn Error>
                     }
                 });
 
@@ -908,10 +944,27 @@ impl ProxyHttp for MyProxy {
                     .insert(hdr_bucket.clone(), config);
             }
             None => {
-                error!("No configuration available for bucket: {hdr_bucket}");
-                return Err(pingora::Error::new_str(
-                    "No configuration available for bucket",
-                ));
+                warn!("No configuration for bucket '{hdr_bucket}'; returning 404");
+                // Build an S3-style NoSuchBucket error.  HEAD requests must not
+                // include a body per HTTP spec, so we only write one for others.
+                let mut hdr = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+                hdr.insert_header("Server", DEFAULT_SERVER_NAME)?;
+                if session.req_header().method == Method::HEAD {
+                    session.write_response_header(Box::new(hdr), true).await?;
+                } else {
+                    let xml = format!(
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+<Error><Code>NoSuchBucket</Code>\
+<Message>The specified bucket does not exist</Message>\
+<BucketName>{hdr_bucket}</BucketName></Error>"
+                    );
+                    let xml_bytes = Bytes::copy_from_slice(xml.as_bytes());
+                    hdr.insert_header("Content-Type", "application/xml")?;
+                    hdr.insert_header("Content-Length", xml_bytes.len().to_string())?;
+                    session.write_response_header(Box::new(hdr), false).await?;
+                    session.write_response_body(Some(xml_bytes), true).await?;
+                }
+                return Ok(true);
             }
         }
         debug!(
@@ -1048,6 +1101,18 @@ impl ProxyHttp for MyProxy {
             "x-amz-copy-source-if-none-match",
             "x-amz-copy-source-if-modified-since",
             "x-amz-copy-source-if-unmodified-since",
+            // UploadPartCopy byte-range
+            "x-amz-copy-source-range",
+            // Conditional GET/PUT (If-Match, If-None-Match, etc.)
+            "if-match",
+            "if-none-match",
+            "if-modified-since",
+            "if-unmodified-since",
+            // User-visible metadata that Garage stores and returns verbatim
+            "cache-control",
+            "content-disposition",
+            // Inline object tagging on PutObject
+            "x-amz-tagging",
             "range",
             "expect",
         ];
@@ -1196,6 +1261,15 @@ impl ProxyHttp for MyProxy {
     ) -> Result<()> {
         let _ = resp.remove_header("Server");
         let _ = resp.insert_header("Server", DEFAULT_SERVER_NAME);
+
+        // S3 guarantees objects always have a Content-Type.  When the backend
+        // (Garage) omits it (e.g. object stored without an explicit type), we
+        // fall back to the S3 default so clients don't see a missing header.
+        if resp.headers.get("content-type").is_none()
+            && (resp.status == StatusCode::OK || resp.status == StatusCode::PARTIAL_CONTENT)
+        {
+            let _ = resp.insert_header("Content-Type", "application/octet-stream");
+        }
 
         #[cfg(feature = "metrics")]
         {

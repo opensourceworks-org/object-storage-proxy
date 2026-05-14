@@ -57,7 +57,7 @@ def _check_reachable(url: str, label: str) -> None:
     try:
         urllib.request.urlopen(url, timeout=3)  # noqa: S310
     except urllib.error.HTTPError:
-        pass  # got a response → service is up
+        pass  # got a response -> service is up
     except Exception as exc:
         pytest.fail(
             f"{label} not reachable at {url}.\n"
@@ -80,25 +80,32 @@ def require_services(env: dict[str, str]) -> None:
 
 
 def _boto_client(
-    endpoint: str, access_key: str, secret_key: str, region: str
+    endpoint: str,
+    access_key: str,
+    secret_key: str,
+    region: str,
+    response_checksum_validation: str | None = None,
 ) -> "boto3.client":
+    cfg_kwargs: dict = {
+        "signature_version": "s3v4",
+        "s3": {"addressing_style": "path"},
+        "retries": {"max_attempts": 1},
+    }
+    if response_checksum_validation is not None:
+        cfg_kwargs["response_checksum_validation"] = response_checksum_validation
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
         region_name=region,
-        config=botocore.config.Config(
-            signature_version="s3v4",
-            s3={"addressing_style": "path"},
-            retries={"max_attempts": 1},
-        ),
+        config=botocore.config.Config(**cfg_kwargs),
     )
 
 
 @pytest.fixture(scope="session")
 def s3(env: dict[str, str]):
-    """boto3 client → OSP proxy (uses client credentials)."""
+    """boto3 client -> OSP proxy (uses client credentials)."""
     return _boto_client(
         endpoint=f"http://{env['OSP_PROXY_HOST']}:{env['OSP_PROXY_PORT']}",
         access_key=env["OSP_CLIENT_ACCESS_KEY"],
@@ -108,8 +115,25 @@ def s3(env: dict[str, str]):
 
 
 @pytest.fixture(scope="session")
+def s3_nochecksum(env: dict[str, str]):
+    """boto3 client -> OSP proxy with response checksum validation disabled.
+
+    Use for tests that make ranged GetObject requests; without this, botocore
+    would compare the full-object checksum header against the partial body and
+    raise FlexibleChecksumError.
+    """
+    return _boto_client(
+        endpoint=f"http://{env['OSP_PROXY_HOST']}:{env['OSP_PROXY_PORT']}",
+        access_key=env["OSP_CLIENT_ACCESS_KEY"],
+        secret_key=env["OSP_CLIENT_SECRET_KEY"],
+        region=env.get("GARAGE_REGION", "garage"),
+        response_checksum_validation="when_required",
+    )
+
+
+@pytest.fixture(scope="session")
 def s3_direct(env: dict[str, str]):
-    """boto3 client → Garage directly (uses backend credentials).
+    """boto3 client -> Garage directly (uses backend credentials).
     Useful for setup/teardown that doesn't need to go through the proxy."""
     return _boto_client(
         endpoint=f"http://{env['GARAGE_HOST']}:{env['GARAGE_PORT']}",

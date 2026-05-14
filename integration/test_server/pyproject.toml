@@ -16,7 +16,7 @@ dependencies = [
 
 [tool.pytest.ini_options]
 timeout = 120
-addopts = "-v --tb=short"
+addopts = "-q --tb=short"
 testpaths = ["tests"]
 markers = [
     "spark: marks tests that require a running SparkSession (slower)",

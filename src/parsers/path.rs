@@ -14,8 +14,8 @@ use nom::{
 ///
 /// The expected format is `/<bucket>[/<object_path>]`.
 ///
-/// * `/my-bucket` → `("my-bucket", "/")`
-/// * `/my-bucket/prefix/key` → `("my-bucket", "/prefix/key")`
+/// * `/my-bucket` -> `("my-bucket", "/")`
+/// * `/my-bucket/prefix/key` -> `("my-bucket", "/prefix/key")`
 ///
 /// # Errors
 ///

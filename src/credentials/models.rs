@@ -3,9 +3,9 @@
 /// Credentials are returned by the optional `bucket_creds_fetcher` Python
 /// callback in one of several formats:
 ///
-/// * A JSON object with `access_key` and `secret_key` → [`BucketCredential::Hmac`]
-/// * A JSON object with `api_key` or `apikey` → [`BucketCredential::ApiKey`]
-/// * Any other plain string → treated as a raw API key ([`BucketCredential::ApiKey`])
+/// * A JSON object with `access_key` and `secret_key` -> [`BucketCredential::Hmac`]
+/// * A JSON object with `api_key` or `apikey` -> [`BucketCredential::ApiKey`]
+/// * Any other plain string -> treated as a raw API key ([`BucketCredential::ApiKey`])
 pub enum BucketCredential {
     /// AWS-style HMAC credentials (SigV4).
     Hmac {

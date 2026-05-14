@@ -81,9 +81,9 @@ config = ProxyServerConfig(
     threads=2,
 )
 
-print(f"[osp] proxy      → http://0.0.0.0:{OSP_PROXY_PORT}")
-print(f"[osp] metrics    → http://0.0.0.0:{OSP_METRICS_PORT}/metrics")
-print(f"[osp] backend    → http://{GARAGE_HOST}:{GARAGE_PORT}  bucket={GARAGE_BUCKET}")
-print(f"[osp] client key → {CLIENT_ACCESS_KEY}")
+print(f"[osp] proxy      -> http://0.0.0.0:{OSP_PROXY_PORT}")
+print(f"[osp] metrics    -> http://0.0.0.0:{OSP_METRICS_PORT}/metrics")
+print(f"[osp] backend    -> http://{GARAGE_HOST}:{GARAGE_PORT}  bucket={GARAGE_BUCKET}")
+print(f"[osp] client key -> {CLIENT_ACCESS_KEY}")
 
 start_server(config)

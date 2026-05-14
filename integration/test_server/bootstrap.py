@@ -46,7 +46,7 @@ def admin(method: str, path: str, **kwargs) -> requests.Response:
     resp = requests.request(method, url, headers=HEADERS, **kwargs)
     if not resp.ok:
         print(
-            f"  [!] {method} {path} → {resp.status_code}: {resp.text}", file=sys.stderr
+            f"  [!] {method} {path} -> {resp.status_code}: {resp.text}", file=sys.stderr
         )
         resp.raise_for_status()
     return resp
@@ -81,9 +81,9 @@ def set_layout(node_id: str) -> None:
     """Assign a zone + capacity to the single node and apply.
 
     Garage v1 API:
-      POST /v1/layout  →  array of NodeRoleChangeEnum with action="configure"
+      POST /v1/layout  ->  array of NodeRoleChangeEnum with action="configure"
                           capacity is in bytes
-      POST /v1/layout/apply  →  {"version": <next_version>}
+      POST /v1/layout/apply  ->  {"version": <next_version>}
     """
     layout = admin("GET", "/layout").json()
     current_version = layout.get("version", 0)
