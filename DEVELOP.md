@@ -383,7 +383,29 @@ task integration:garage:destroy  # also wipe Garage data volumes
 | `tests/test_multipart.py` | CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts |
 | `tests/test_presigned.py` | Presigned GET/PUT, expiry enforcement, repeated-use limiting |
 | `tests/test_aws_cli.py` | `aws s3 ls`, `cp`, `sync`, `rm` via subprocess |
+| `tests/test_range_requests.py` | Byte-range GET (single, multi, suffix, full), `206 Partial Content`, conditional GET headers (`If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`) |
+| `tests/test_metadata.py` | Custom `x-amz-meta-*` headers, `Content-Type`, `Cache-Control`, `Content-Disposition`, `Content-Encoding`, copy metadata directives (`COPY` / `REPLACE`) |
+| `tests/test_etag.py` | ETag format for single-part and multipart objects, ETag preservation through CopyObject, checksum header tolerance |
+| `tests/test_tagging.py` | `PutObjectTagging`, `GetObjectTagging`, `DeleteObjectTagging` — marked `xfail` (Garage limitation, see below) |
+| `tests/test_bucket_ops.py` | HeadBucket, ListBuckets, GetBucketLocation, ListObjectsV1/V2 extended params, ListMultipartUploads |
+| `tests/test_advanced_objects.py` | DeleteObjects (quiet/mixed), UploadPartCopy (full source + byte-range), presigned HEAD/DELETE/GET-with-range, `response-*` query overrides, 12 MB streaming PUT |
 | `tests/test_spark.py` | Spark s3a read/write: Parquet, JSON, overwrite, empty DataFrame, large DataFrame (10 000 rows) |
+
+### Known Garage v1.0.1 limitations
+
+The following S3 operations are **not implemented by Garage** and will remain `xfail` until the backend adds support.  The proxy forwards the requests correctly — the limitation is entirely in the storage backend.
+
+| Operation | Symptom | Notes |
+|-----------|---------|-------|
+| `PutObjectTagging` | `NotImplemented` | `?tagging` sub-resource not supported |
+| `GetObjectTagging` | `NotImplemented` | `?tagging` sub-resource not supported |
+| `DeleteObjectTagging` | `NotImplemented` | `?tagging` sub-resource not supported |
+| `If-Match` enforcement | Returns 200 instead of 412 | Garage ignores the header on `GET` |
+| `If-Unmodified-Since` enforcement | Returns 200 instead of 412 | Garage ignores the header on `GET` |
+
+> `If-None-Match` (→ 304) and `If-Modified-Since` (→ 304) **are** enforced correctly by Garage.
+
+These tests use `strict=True` or `strict=False` xfail markers so the suite stays green and will automatically promote to passes if the backend is upgraded.
 
 ### Spark tests
 
