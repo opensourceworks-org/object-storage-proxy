@@ -13,6 +13,7 @@ A fast, in-process reverse proxy for AWS S3 and IBM Cloud Object Storage, built 
 - [High-Level Documentation](https://osp.flexworks.eu)
 - [Detailed Documentation](https://osp-docs.flexworks.eu/)
 - [Code Documentation (cargo doc)](https://osp-docs.flexworks.eu/api/object_storage_proxy/)
+- [Benchmarks](BENCHMARKS.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 
