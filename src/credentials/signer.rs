@@ -1461,17 +1461,25 @@ mod tests {
         }
     }
 
+    /// Build a signing test request with an absolute upstream URI, mirroring how
+    /// production constructs `upstream_request` via `Uri::builder` before signing.
+    fn make_signing_request() -> RequestHeader {
+        let uri: http::Uri =
+            "https://bucket.s3.us-east-1.amazonaws.com/?list-type=2&prefix=mandelbrot&encoding-type=url"
+                .parse()
+                .unwrap();
+        let mut req = RequestHeader::build(Method::GET, b"/", None).unwrap();
+        req.set_uri(uri);
+        req.insert_header("Host", "bucket.s3.us-east-1.amazonaws.com")
+            .unwrap();
+        req
+    }
+
     /// Any method other than GET/HEAD/DELETE should use UNSIGNED-PAYLOAD
     #[tokio::test]
     async fn post_request_uses_unsigned_payload() {
         // build a POST RequestHeader
-        let mut req = RequestHeader::build(
-            Method::GET,
-            b"https://bucket.s3.us-east-1.amazonaws.com/?list-type=2&prefix=mandelbrot&encoding-type=url",
-            None
-        ).unwrap();
-        req.insert_header("Host", "bucket.s3.us-east-1.amazonaws.com")
-            .unwrap();
+        let mut req = make_signing_request();
         assert!(req.headers.get("x-amz-content-sha256").is_none());
 
         // run sign_request
@@ -1499,12 +1507,7 @@ mod tests {
     /// GET/DELETE must use the empty-body hash, and sign correctly
     #[tokio::test]
     async fn get_request_sets_empty_body_hash_and_signature_format() {
-        let mut req = RequestHeader::build(
-            Method::GET, b"https://bucket.s3.us-east-1.amazonaws.com/?list-type=2&prefix=mandelbrot&encoding-type=url",
-            None
-        ).unwrap();
-        req.insert_header("Host", "bucket.s3.us-east-1.amazonaws.com")
-            .unwrap();
+        let mut req = make_signing_request();
         let cos = make_cos_map_item();
         sign_request(&mut req, &cos).await.unwrap();
 
@@ -1540,13 +1543,7 @@ mod tests {
     /// Missing any of region/access_key/secret_key should error out
     #[tokio::test]
     async fn error_when_missing_credentials() {
-        let mut req = RequestHeader::build(
-            Method::GET,
-            b"https://bucket.s3.us-east-1.amazonaws.com/?list-type=2&prefix=mandelbrot&encoding-type=url",
-            None
-        ).unwrap();
-        req.insert_header("Host", "bucket.s3.us-east-1.amazonaws.com")
-            .unwrap();
+        let mut req = make_signing_request();
         let mut cos = make_cos_map_item();
         cos.region = None; // drop region
         let err = sign_request(&mut req, &cos).await.unwrap_err();
