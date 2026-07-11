@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.9] - 2026-07-08
+## [0.6.9] - 2026-07-11
+
+### Documentation
+- Update CHANGELOG for v0.6.9 [skip ci]
+
+
+### Fixed
+- Update sign requests for http/pingora
+
+
+## [0.6.9] - 2026-07-11
 
 ### Chores
 - Release v0.6.9
