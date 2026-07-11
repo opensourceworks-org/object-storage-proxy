@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Chores
+- Release v0.6.11
+
 - Bump version
 
 
