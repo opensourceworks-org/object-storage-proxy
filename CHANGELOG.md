@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.12] - 2026-07-14
 
 ### Chores
+- Release v0.6.12
+
 - Bump version
 
 - Release v0.6.11
