@@ -770,7 +770,7 @@ impl ProxyHttp for MyProxy {
                         if !ok {
                             let msg = format!(
                                 "Signature invalid for presigned URL: {}",
-                                &session.req_header().uri.path()
+                                session.req_header().uri.path()
                             );
                             session.respond_error_with_body(401, msg.into()).await?;
                             return Ok(true);
@@ -889,7 +889,7 @@ impl ProxyHttp for MyProxy {
             // included — they differ on every request and would make the cache
             // useless.
             let method_str = session.req_header().method.as_str();
-            let cache_key = format!("{}:{}:{}", &access_key, bucket, method_str);
+            let cache_key = format!("{}:{}:{}", access_key, bucket, method_str);
             debug!("Cache key: {}", cache_key);
 
             // Default 300-second TTL so the cache is always effective.
